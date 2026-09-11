@@ -1122,8 +1122,10 @@
                     <span style="color: var(--accent); font-weight: bold;">Ментальная карта</span>
                     <button class="action-btn" id="downloadDiagramBtn" style="padding: 4px 12px; font-size: 12px;">📸 Скачать схему (SVG)</button>
                 </div>
-                <div id="mermaidWrapper"><pre class="mermaid">${data.mermaid_code}</pre></div>
+                <div id="mermaidWrapper"><pre class="mermaid"></pre></div>
             `;
+            // Безопасно вставляем код без HTML парсинга
+            container.querySelector('.mermaid').textContent = data.mermaid_code;
 
             
             await window.mermaid.run({ nodes: [container.querySelector('.mermaid')] });

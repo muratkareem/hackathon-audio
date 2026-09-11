@@ -91,16 +91,32 @@ class ProtocolGenerator:
                 options={"num_ctx": 4096}
             )
             mermaid_code = response['message']['content'].strip()
-            # Очистка маркдауна на случай если LLM всё-таки его добавит
-            if mermaid_code.startswith("```mermaid"):
-                mermaid_code = mermaid_code[10:]
-            if mermaid_code.startswith("```"):
-                mermaid_code = mermaid_code[3:]
-            if mermaid_code.endswith("```"):
-                mermaid_code = mermaid_code[:-3]
-            return mermaid_code.strip()
+            
+            # Если LLM добавил текст до или после маркдауна, вытащим строго код
+            import re
+            match = re.search(r'```(?:mermaid)?(.*?)```', mermaid_code, re.DOTALL)
+            if match:
+                mermaid_code = match.group(1).strip()
+            else:
+                # На случай, если LLM не использовал маркдаун вообще
+                mermaid_code = mermaid_code.strip()
+                
+            # Дополнительная очистка от пустых строк, которые иногда ломают Mermaid
+            lines = [line.strip() for line in mermaid_code.split('\n') if line.strip()]
+            
+            # Убедимся, что первая строка точно начинается с graph
+            if not lines or not lines[0].startswith("graph"):
+                lines = ["graph TD"] + [l for l in lines if "-->" in l]
+            
+            # Если после фильтрации остался только заголовок, добавим безопасный узел
+            if len(lines) == 1:
+                lines.append("  Error[Не удалось сгенерировать схему из текста]")
+                
+            mermaid_code = "\n".join(lines)
+            return mermaid_code
         except Exception as e:
-            return f"mindmap\n  root((Ошибка))\n    {str(e)}"
+            return f"graph TD\n  Error[Ошибка: {str(e)}]"
+
 
     def generate_qa_pairs(self, protocol_text: str):
         print(f"❓ Генерация умных вопросов (Q&A)...")
