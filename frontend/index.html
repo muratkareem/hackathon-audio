@@ -599,6 +599,32 @@
             color: var(--text);
         }
     </style>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        .markdown-body {
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        .markdown-body h2 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            color: var(--accent);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.3em;
+        }
+        .markdown-body ul {
+            padding-left: 20px;
+            margin-bottom: 1em;
+        }
+        .markdown-body li {
+            margin-bottom: 0.5em;
+        }
+        .markdown-body strong {
+            color: var(--text);
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -674,7 +700,10 @@
                 </div>
                 <div class="action-bar">
                     <a href="/api/export/csv" class="action-btn">📥 CSV</a>
+                    <a href="/api/export/json" class="action-btn">📥 JSON</a>
+                    <button class="action-btn" id="pdfBtn">📥 PDF</button>
                     <button class="action-btn" id="copyBtn">📋 Копировать</button>
+                    <button class="action-btn" id="diagramBtn">🎨 Excalidraw</button>
                 </div>
             </div>
 
@@ -685,6 +714,7 @@
                 </div>
                 <div class="result-card-body">
                     <div id="aiSummary" class="ai-summary"></div>
+                    <div id="diagramContainer" class="ai-summary" style="display: none; border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px;"></div>
                 </div>
             </div>
 
@@ -716,12 +746,7 @@
                         <span class="chat-typing-dot"></span>
                     </div>
                 </div>
-                <div class="chat-suggestions" id="chatSuggestions">
-                    <span class="chat-suggestion">Какие решения были приняты?</span>
-                    <span class="chat-suggestion">О чём говорил Спикер 1?</span>
-                    <span class="chat-suggestion">Какие задачи были поставлены?</span>
-                    <span class="chat-suggestion">Краткое содержание встречи</span>
-                </div>
+                <div class="chat-suggestions" id="chatSuggestions"></div>
                 <div class="chat-input-bar">
                     <input type="text" class="chat-input" id="chatInput" placeholder="Спросите что-нибудь о встрече..." />
                     <button class="chat-send" id="chatSendBtn">Отправить</button>
@@ -861,7 +886,35 @@
 
                 const data = await response.json();
                 renderResults(data, seconds);
+                
                 showScreen('results');
+                
+                // Fetch dynamic Q&A pairs in background
+                document.getElementById('chatSuggestions').innerHTML = '<span style="color:var(--text-dim);font-size:12px;">⏳ Генерирую умные вопросы...</span>';
+                fetch('/api/generate_qa')
+                    .then(res => res.json())
+                    .then(data => {
+                        const container = document.getElementById('chatSuggestions');
+                        container.innerHTML = '';
+                        if (data.qa_pairs && data.qa_pairs.length > 0) {
+                            data.qa_pairs.forEach(pair => {
+                                const chip = document.createElement('span');
+                                chip.className = 'chat-suggestion';
+                                chip.textContent = pair.q;
+                                chip.addEventListener('click', () => {
+                                    // Instantiate instant Q&A response
+                                    addChatMessage(pair.q, 'user'); document.getElementById('chatSuggestions').style.display = 'none';
+                                    addChatMessage(pair.a, 'bot');
+                                });
+                                container.appendChild(chip);
+                            });
+                        }
+                    })
+                    .catch(err => {
+                        document.getElementById('chatSuggestions').innerHTML = '';
+                        console.error('QA Error:', err);
+                    });
+
             } catch (err) {
                 clearInterval(timerInterval);
                 showScreen('upload');
@@ -878,7 +931,8 @@
             document.getElementById('statSegments').textContent = data.raw_data.length;
 
             // AI Summary
-            document.getElementById('aiSummary').textContent = data.ai_summary;
+            window.rawAiSummary = data.ai_summary;
+            document.getElementById('aiSummary').innerHTML = '<div class="markdown-body">' + marked.parse(data.ai_summary) + '</div>';
 
             // Transcript entries
             const container = document.getElementById('transcriptContent');
@@ -908,12 +962,30 @@
 
         // ─── Copy ───
         document.getElementById('copyBtn').addEventListener('click', () => {
-            const text = document.getElementById('aiSummary').textContent;
-            navigator.clipboard.writeText(text).then(() => {
+            const text = window.rawAiSummary || document.getElementById('aiSummary').innerText;
+            const showCopied = () => {
                 const btn = document.getElementById('copyBtn');
                 btn.textContent = '✅ Скопировано';
                 setTimeout(() => btn.textContent = '📋 Копировать', 2000);
-            });
+            };
+            
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(showCopied).catch(e => console.error(e));
+            } else {
+                let textArea = document.createElement("textarea");
+                textArea.value = text;
+                textArea.style.position = "fixed";
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    showCopied();
+                } catch (err) {
+                    console.error('Fallback copy failed', err);
+                }
+                document.body.removeChild(textArea);
+            }
         });
 
         // ─── New Upload ───
@@ -994,11 +1066,107 @@
         });
 
         // Suggestion chips
-        document.querySelectorAll('.chat-suggestion').forEach(chip => {
-            chip.addEventListener('click', () => {
-                sendChatMessage(chip.textContent);
-            });
+    // ─── PDF Export ───
+    document.getElementById('pdfBtn').addEventListener('click', () => {
+        const element = document.getElementById('aiSummary');
+        const opt = {
+            margin:       10,
+            filename:     'AI-Protocol.pdf',
+            image:        { type: 'jpeg', quality: 0.98 },
+            html2canvas:  { scale: 2, useCORS: true },
+            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        // Add a temporary white background for the PDF since the app is in dark mode
+        const originalBg = element.style.background;
+        const originalColor = element.style.color;
+        element.style.background = 'white';
+        element.style.color = 'black';
+        
+        html2pdf().set(opt).from(element).save().then(() => {
+            element.style.background = originalBg;
+            element.style.color = originalColor;
         });
-    </script>
+    });
+</script>
 </body>
 </html>
+
+<!-- Mermaid for Excalidraw-like rendering -->
+<script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', look: 'handDrawn' });
+    window.mermaid = mermaid;
+
+    document.getElementById('diagramBtn').addEventListener('click', async () => {
+        const btn = document.getElementById('diagramBtn');
+        if (btn.textContent.includes('Рисую')) return;
+        
+        const originalText = btn.textContent;
+        btn.textContent = '⏳ Рисую...';
+        
+        try {
+            const res = await fetch('/api/diagram');
+            const data = await res.json();
+            
+            if (data.error) {
+                alert(data.error);
+                btn.textContent = originalText;
+                return;
+            }
+            
+            const container = document.getElementById('diagramContainer');
+            container.style.display = 'block';
+            
+            container.innerHTML = `
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <span style="color: var(--accent); font-weight: bold;">Ментальная карта</span>
+                    <button class="action-btn" id="downloadDiagramBtn" style="padding: 4px 12px; font-size: 12px;">📸 Скачать схему (SVG)</button>
+                </div>
+                <div id="mermaidWrapper"><pre class="mermaid">${data.mermaid_code}</pre></div>
+            `;
+
+            
+            await window.mermaid.run({ nodes: [container.querySelector('.mermaid')] });
+            
+            // Attach download listener
+            document.getElementById('downloadDiagramBtn').addEventListener('click', () => {
+                const svg = document.querySelector('#mermaidWrapper svg');
+                if (!svg) return;
+                
+                const clonedSvg = svg.cloneNode(true);
+                const box = svg.getBoundingClientRect();
+                clonedSvg.setAttribute('width', box.width);
+                clonedSvg.setAttribute('height', box.height);
+                
+                // Add dark background to SVG so it looks good when opened directly
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                rect.setAttribute("width", "100%");
+                rect.setAttribute("height", "100%");
+                rect.setAttribute("fill", "#0f0f13");
+                clonedSvg.insertBefore(rect, clonedSvg.firstChild);
+                
+                // Add xmlns if missing so it opens cleanly in image viewers
+                if (!clonedSvg.getAttribute('xmlns')) {
+                    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+                }
+                
+                const svgData = new XMLSerializer().serializeToString(clonedSvg);
+                const blob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.download = 'meeting_diagram.svg';
+                a.href = url;
+                a.click();
+                
+                setTimeout(() => URL.revokeObjectURL(url), 100);
+            });
+
+            btn.textContent = '✅ Готово';
+        } catch (e) {
+            console.error(e);
+            alert('Ошибка при генерации диаграммы');
+            btn.textContent = '❌ Ошибка';
+        }
+    });
+</script>

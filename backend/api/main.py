@@ -90,6 +90,57 @@ async def export_csv():
         media_type="text/csv"
     )
 
+@app.get("/api/diagram")
+async def generate_diagram():
+    if not last_result or "ai_summary" not in last_result:
+        return {"error": "Нет данных для генерации диаграммы."}
+    
+    # Используем ProtocolGenerator для вызова Ollama
+    diagram_code = processor.protocol_generator.generate_diagram(last_result["ai_summary"])
+    return {"mermaid_code": diagram_code}
+
+
+@app.get("/api/export/json")
+async def export_json():
+    if not last_result:
+        return {"error": "Нет данных для экспорта."}
+    
+    import json
+    json_path = Path(__file__).resolve().parent.parent.parent / "data" / "protocol.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(last_result, f, ensure_ascii=False, indent=2)
+        
+    return FileResponse(
+        path=json_path, 
+        filename="meeting_protocol.json", 
+        media_type="application/json"
+    )
+
+@app.get("/api/export/md")
+async def export_md():
+    if not last_result:
+        return {"error": "Нет данных для экспорта."}
+        
+    md_path = Path(__file__).resolve().parent.parent.parent / "data" / "protocol.md"
+    with open(md_path, "w", encoding="utf-8") as f:
+        f.write(last_result.get("ai_summary", ""))
+        
+    return FileResponse(
+        path=md_path, 
+        filename="meeting_protocol.md", 
+        media_type="text/markdown"
+    )
+
+
+@app.get("/api/generate_qa")
+async def generate_qa():
+    if not last_result or "ai_summary" not in last_result:
+        return {"qa_pairs": []}
+    
+    # Генерация в фоне после основного ответа
+    qa = processor.protocol_generator.generate_qa_pairs(last_result["ai_summary"])
+    return {"qa_pairs": qa}
+
 # Раздаем статические файлы фронтенда
 frontend_path = Path(__file__).resolve().parent.parent.parent / "frontend"
 app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")

@@ -78,6 +78,14 @@ class MeetingProcessor:
     def process(self, audio_path: str):
         t_total = time.time()
         
+        # 0. Конвертация аудио (защита от багов Torchaudio с VBR MP3)
+        print(f"\n0. Конвертация аудио в стандартный WAV 16kHz...")
+        audio_seg = AudioSegment.from_file(audio_path)
+        audio_seg = audio_seg.set_frame_rate(16000).set_channels(1)
+        wav_path = str(audio_path) + "_converted.wav"
+        audio_seg.export(wav_path, format="wav")
+        audio_path = wav_path
+        
         # 1. Диаризация
         print("\n1. Запуск Pyannote (Диаризация) для нарезки аудио...")
         t0 = time.time()
@@ -141,6 +149,13 @@ class MeetingProcessor:
         # Собираем в правильном порядке (по таймстампу)
         for result in results:
             if result is not None:
+                # Округляем таймстемпы до 1 знака после запятой
+                result['start'] = round(result['start'], 1)
+                result['end'] = round(result['end'], 1)
+                if 'segments' in result:
+                    for s in result['segments']:
+                        s['start'] = round(s['start'], 1)
+                        s['end'] = round(s['end'], 1)
                 final_protocol.append(result)
                 
         print(f"   ✅ Транскрипция: {time.time() - t0:.1f}s")

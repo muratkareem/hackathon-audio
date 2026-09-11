@@ -1,4 +1,13 @@
-faster-whisper==1.0.3
+faster-whisper>=1.2.1
 numpy
 requests
 ollama
+fastapi
+uvicorn
+python-multipart
+pandas
+pydub
+audioop-lts
+pyannote.audio
+torch
+torchaudio
