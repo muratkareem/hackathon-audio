@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Meeting Protocol</title>
+    <!-- Подключаем Tailwind для быстрой и красивой верстки -->
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen text-gray-800 font-sans">
+    <div class="max-w-5xl mx-auto p-6 mt-10">
+        <!-- Заголовок -->
+        <header class="mb-10 text-center">
+            <h1 class="text-4xl font-bold text-blue-600 mb-2">AI Meeting Intelligence</h1>
+            <p class="text-gray-500 text-lg">Автономный протоколист совещаний (100% Offline)</p>
+        </header>
+
+        <!-- Блок загрузки -->
+        <div class="bg-white rounded-xl shadow-md p-8 mb-8">
+            <h2 class="text-2xl font-semibold mb-4 text-gray-700">Загрузите аудиозапись встречи</h2>
+            <div class="flex items-center space-x-4">
+                <input type="file" id="audioFile" accept="audio/*" class="block w-full text-sm text-gray-500
+                    file:mr-4 file:py-3 file:px-4
+                    file:rounded-full file:border-0
+                    file:text-sm file:font-semibold
+                    file:bg-blue-50 file:text-blue-700
+                    hover:file:bg-blue-100 cursor-pointer border border-gray-300 rounded-full"
+                />
+                <button id="processBtn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full transition-colors whitespace-nowrap">
+                    Обработать ИИ
+                </button>
+            </div>
+            <!-- Индикатор загрузки -->
+            <div id="loading" class="hidden mt-6 text-center text-blue-600 font-medium">
+                <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-600 inline-block" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                Нейросеть слушает и пишет протокол. Пожалуйста, подождите (зависит от длины файла)...
+            </div>
+        </div>
+
+        <!-- Блок с результатами (Скрыт по умолчанию) -->
+        <div id="resultBlock" class="hidden space-y-6">
+            <!-- Кнопки экспорта -->
+            <div class="flex justify-end mb-4">
+                <a href="/api/export/csv" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-lg transition-colors flex items-center">
+                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    Экспорт в CSV
+                </a>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Executive Summary -->
+                <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-blue-500">
+                    <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center">
+                        📋 ИИ-Протокол (Ollama)
+                    </h2>
+                    <div id="aiSummary" class="prose max-w-none text-gray-600 whitespace-pre-wrap bg-gray-50 p-4 rounded-lg text-sm font-mono border">
+                        <!-- Сюда вставляется ответ Ollama -->
+                    </div>
+                </div>
+
+                <!-- Сырой диалог -->
+                <div class="bg-white rounded-xl shadow-md p-6 border-t-4 border-purple-500">
+                    <h2 class="text-xl font-bold mb-4 text-gray-800 flex items-center">
+                        🗣️ Расшифровка по ролям (Whisper + Pyannote)
+                    </h2>
+                    <div id="rawTranscript" class="h-[500px] overflow-y-auto text-sm text-gray-700 bg-gray-50 p-4 rounded-lg border font-mono">
+                        <!-- Сюда вставляется сырой лог диалога -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('processBtn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('audioFile');
+            if (fileInput.files.length === 0) {
+                alert("Пожалуйста, выберите аудиофайл!");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+
+            // Показываем загрузку, прячем старые результаты
+            document.getElementById('loading').classList.remove('hidden');
+            document.getElementById('resultBlock').classList.add('hidden');
+            document.getElementById('processBtn').disabled = true;
+            document.getElementById('processBtn').classList.add('opacity-50');
+
+            try {
+                const response = await fetch('/api/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) throw new Error("Ошибка сервера");
+                
+                const data = await response.json();
+                
+                // Вставляем данные в интерфейс
+                document.getElementById('aiSummary').textContent = data.ai_summary;
+                
+                // Красиво форматируем сырой диалог
+                const rawContainer = document.getElementById('rawTranscript');
+                rawContainer.innerHTML = '';
+                data.raw_data.forEach(item => {
+                    const p = document.createElement('p');
+                    p.className = "mb-3 pb-2 border-b border-gray-200 last:border-0";
+                    p.innerHTML = `
+                        <span class="text-purple-600 font-bold">${item.speaker}</span> 
+                        <span class="text-gray-400 text-xs">[${item.start.toFixed(1)}s - ${item.end.toFixed(1)}s]</span><br/>
+                        <span class="text-gray-700 mt-1 inline-block">${item.text}</span>
+                    `;
+                    rawContainer.appendChild(p);
+                });
+
+                // Показываем блок с результатами
+                document.getElementById('resultBlock').classList.remove('hidden');
+            } catch (error) {
+                alert("Произошла ошибка при обработке файла: " + error.message);
+            } finally {
+                // Прячем загрузку
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('processBtn').disabled = false;
+                document.getElementById('processBtn').classList.remove('opacity-50');
+            }
+        });
+    </script>
+</body>
+</html>

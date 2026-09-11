@@ -38,3 +38,7 @@ data/models/*
 .vscode/
 *.swp
 *.swo
+
+data/*.mp3
+data/*.wav
+:memory:.ses
