@@ -1,0 +1,40 @@
+# ==========================
+# Окружение и зависимости
+# ==========================
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+
+# Node / Frontend
+frontend/node_modules/
+frontend/.next/
+frontend/dist/
+frontend/build/
+.npm/
+
+# ==========================
+# Данные и Модели (ВАЖНО!)
+# ==========================
+# Не пушим тяжелые аудиофайлы и модели в Git!
+data/audio/*
+!data/audio/.gitkeep
+data/models/*
+!data/models/.gitkeep
+
+# Базы данных
+*.sqlite3
+*.db
+
+# ==========================
+# IDE и ОС
+# ==========================
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
