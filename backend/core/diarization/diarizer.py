@@ -1,4 +1,5 @@
 import os
+import torch
 from pyannote.audio import Pipeline
 from pathlib import Path
 
@@ -12,6 +13,7 @@ class SpeakerDiarizer:
         """
         Инициализация модели диаризации от Pyannote.
         Требуется токен от Hugging Face, так как модель закрыта лицензией.
+        Автоматически использует MPS (Metal GPU) на Apple Silicon для ускорения.
         """
         print("Загрузка модели Pyannote (Диаризация)...")
         try:
@@ -23,8 +25,15 @@ class SpeakerDiarizer:
             print("\n❌ ОШИБКА: Не удалось загрузить модель Pyannote.")
             print("Убедитесь, что вы передали правильный HF_TOKEN и приняли соглашения на Hugging Face!")
             raise e
-            
-        print("✅ Модель диаризации готова!")
+        
+        # Перемещаем на MPS (Metal GPU) для ~2× ускорения на Apple Silicon
+        if torch.backends.mps.is_available():
+            self.device = torch.device("mps")
+            self.pipeline.to(self.device)
+            print("✅ Модель диаризации готова! (🚀 MPS/Metal GPU)")
+        else:
+            self.device = torch.device("cpu")
+            print("✅ Модель диаризации готова! (CPU)")
 
     def diarize(self, audio_path: str):
         """

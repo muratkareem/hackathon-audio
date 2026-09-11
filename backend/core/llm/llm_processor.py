@@ -1,5 +1,4 @@
 import ollama
-import json
 
 class ProtocolGenerator:
     def __init__(self, model_name="llama3"):
@@ -29,12 +28,33 @@ class ProtocolGenerator:
         """
 
     def generate_protocol(self, transcript: str):
+        """
+        Генерация протокола с streaming для лучшего UX.
+        Расширен num_ctx до 8192 для длинных транскриптов.
+        """
         print(f"🧠 Отправка размеченного текста ({len(transcript)} символов) в Ollama ({self.model_name})...")
         try:
-            response = ollama.chat(model=self.model_name, messages=[
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": f"Вот транскрипт встречи:\n\n{transcript}\n\nСоставь протокол."}
-            ])
-            return response['message']['content']
+            # Streaming: собираем ответ по частям, выводим по мере генерации
+            response_text = ""
+            stream = ollama.chat(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": f"Вот транскрипт встречи:\n\n{transcript}\n\nСоставь протокол."}
+                ],
+                stream=True,
+                options={
+                    "num_ctx": 8192  # Расширяем контекстное окно для длинных транскриптов
+                }
+            )
+            
+            for chunk in stream:
+                token = chunk['message']['content']
+                response_text += token
+                print(token, end="", flush=True)
+            
+            print()  # Завершающий перевод строки
+            return response_text
+            
         except Exception as e:
             return f"❌ Ошибка при обращении к Ollama: {str(e)}\nУбедитесь, что приложение Ollama запущено и модель {self.model_name} скачана."
