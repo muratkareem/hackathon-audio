@@ -42,3 +42,4 @@ data/models/*
 data/*.mp3
 data/*.wav
 :memory:.ses
+.env
