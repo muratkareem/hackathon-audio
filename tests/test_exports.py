@@ -35,3 +35,17 @@ def test_localization_keys_and_no_remote_scripts():
     assert "https://" not in html
     js = (ROOT / "frontend/app.js").read_text()
     assert "innerHTML" not in js
+
+
+def test_csv_headers_follow_report_language(settings, meeting):
+    payload, _ = export(meeting, "csv", settings)
+    assert (
+        payload.decode("utf-8-sig")
+        .splitlines()[0]
+        .startswith("Задача,Ответственный,Срок,")
+    )
+    meeting["summary_language"] = "en"
+    payload, _ = export(meeting, "csv", settings)
+    assert (
+        payload.decode("utf-8-sig").splitlines()[0].startswith("Task,Owner,Deadline,")
+    )

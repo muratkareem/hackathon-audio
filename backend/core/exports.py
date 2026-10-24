@@ -15,6 +15,7 @@ LABELS = {
         "takeaways": "Key takeaways",
         "unknown": "Unknown speaker",
         "none": "Not specified",
+        "csv_headers": ["Task", "Owner", "Deadline", "Segment references"],
     },
     "ru": {
         "overview": "Обзор встречи",
@@ -26,6 +27,7 @@ LABELS = {
         "takeaways": "Главные выводы",
         "unknown": "Спикер не определён",
         "none": "Не указано",
+        "csv_headers": ["Задача", "Ответственный", "Срок", "Ссылки на сегменты"],
     },
 }
 
@@ -110,7 +112,7 @@ def export(meeting, kind, settings):
     if kind == "csv":
         buffer = io.StringIO(newline="")
         writer = csv.writer(buffer)
-        writer.writerow(["task", "owner", "deadline", "segment_references"])
+        writer.writerow(LABELS[meeting["summary_language"]]["csv_headers"])
         for item in (meeting.get("report") or {}).get("actions", []):
             writer.writerow(
                 [safe_cell(item.get(k)) for k in ("text", "owner", "deadline")]
