@@ -7,7 +7,7 @@ SUMMARY = (
     GROUNDING
     + """ Produce an overview, topics, discussion, decisions, action tasks,
 open questions and takeaways. Every discussion item, decision, task and open question must
-cite at least one provided segment ID. Include only explicit decisions and assignments."""
+cite at least one provided segment ID. For each action fill owner with the explicitly stated person and deadline with the explicitly stated time phrase; use null only when absent. Include only explicit decisions and assignments."""
 )
 QA = (
     GROUNDING

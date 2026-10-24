@@ -148,3 +148,13 @@ def test_empty_audio_explicit(monkeypatch, settings, meeting):
     )
     with pytest.raises(InferenceError, match="empty_transcript"):
         MeetingProcessor(settings).process("fake", meeting, lambda *a: None)
+
+
+def test_action_requires_explicit_owner_and_deadline(meeting):
+    from core.schemas import Action
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        Action(text="Test backend", references=[0])
+    action = Action(text="Test backend", references=[0], owner=None, deadline=None)
+    assert action.owner is None

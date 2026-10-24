@@ -27,8 +27,8 @@ class Evidence(StrictModel):
 
 
 class Action(Evidence):
-    owner: str | None = Field(default=None, max_length=100)
-    deadline: str | None = Field(default=None, max_length=100)
+    owner: str | None = Field(max_length=100)
+    deadline: str | None = Field(max_length=100)
 
 
 class Report(StrictModel):
