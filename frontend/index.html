@@ -1,1174 +1,177 @@
-<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Meeting Intelligence</title>
-    <style>
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        :root {
-            --bg: #0f0f13;
-            --surface: #1a1a24;
-            --surface-2: #22222f;
-            --border: #2a2a3a;
-            --text: #e4e4ed;
-            --text-dim: #8888a0;
-            --accent: #6c5ce7;
-            --accent-glow: rgba(108, 92, 231, 0.25);
-            --green: #00b894;
-            --red: #e74c3c;
-            --orange: #f39c12;
-            --radius: 16px;
-        }
-
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', system-ui, sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            line-height: 1.6;
-        }
-
-        .container {
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 40px 20px 80px;
-        }
-
-        /* ─── Header ─── */
-        .header {
-            text-align: center;
-            margin-bottom: 48px;
-        }
-        .header-icon {
-            font-size: 48px;
-            margin-bottom: 12px;
-        }
-        .header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            letter-spacing: -0.5px;
-            margin-bottom: 6px;
-        }
-        .header p {
-            color: var(--text-dim);
-            font-size: 15px;
-        }
-        .badge {
-            display: inline-block;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            color: var(--green);
-            font-size: 11px;
-            font-weight: 600;
-            padding: 3px 10px;
-            border-radius: 20px;
-            margin-top: 10px;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-        }
-
-        /* ─── Upload Zone ─── */
-        .upload-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 40px;
-            text-align: center;
-            transition: all 0.3s;
-        }
-
-        .drop-zone {
-            border: 2px dashed var(--border);
-            border-radius: 12px;
-            padding: 48px 24px;
-            cursor: pointer;
-            transition: all 0.3s;
-            position: relative;
-        }
-        .drop-zone:hover, .drop-zone.dragover {
-            border-color: var(--accent);
-            background: var(--accent-glow);
-        }
-        .drop-zone-icon {
-            font-size: 40px;
-            margin-bottom: 12px;
-            opacity: 0.7;
-        }
-        .drop-zone-text {
-            font-size: 15px;
-            color: var(--text-dim);
-        }
-        .drop-zone-text strong {
-            color: var(--accent);
-            cursor: pointer;
-        }
-        .drop-zone-hint {
-            font-size: 12px;
-            color: var(--text-dim);
-            margin-top: 8px;
-            opacity: 0.6;
-        }
-
-        .file-info {
-            display: none;
-            align-items: center;
-            gap: 12px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 12px 16px;
-            margin-top: 20px;
-            text-align: left;
-        }
-        .file-info.visible { display: flex; }
-        .file-info-icon { font-size: 28px; flex-shrink: 0; }
-        .file-info-details { flex: 1; min-width: 0; }
-        .file-info-name {
-            font-size: 14px;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .file-info-size { font-size: 12px; color: var(--text-dim); }
-        .file-info-remove {
-            background: none;
-            border: none;
-            color: var(--text-dim);
-            cursor: pointer;
-            font-size: 18px;
-            padding: 4px;
-            transition: color 0.2s;
-        }
-        .file-info-remove:hover { color: var(--red); }
-
-        .upload-btn {
-            display: none;
-            width: 100%;
-            margin-top: 20px;
-            padding: 14px;
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-            letter-spacing: 0.3px;
-        }
-        .upload-btn.visible { display: block; }
-        .upload-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
-        .upload-btn:active { transform: translateY(0); }
-        .upload-btn:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            filter: none;
-        }
-
-        /* ─── Processing State ─── */
-        .processing-card {
-            display: none;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 48px 40px;
-            text-align: center;
-        }
-        .processing-card.visible { display: block; }
-
-        .brain-animation {
-            position: relative;
-            width: 80px;
-            height: 80px;
-            margin: 0 auto 24px;
-        }
-        .brain-emoji {
-            font-size: 48px;
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            animation: brain-pulse 2s ease-in-out infinite;
-        }
-        .brain-ring {
-            position: absolute;
-            inset: 0;
-            border: 3px solid transparent;
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: spin 1.2s linear infinite;
-        }
-        .brain-ring:nth-child(2) {
-            inset: -8px;
-            border-top-color: transparent;
-            border-right-color: var(--accent);
-            opacity: 0.4;
-            animation-duration: 1.8s;
-            animation-direction: reverse;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes brain-pulse {
-            0%, 100% { transform: translate(-50%, -50%) scale(1); }
-            50% { transform: translate(-50%, -50%) scale(1.1); }
-        }
-
-        .processing-title {
-            font-size: 18px;
-            font-weight: 600;
-            margin-bottom: 8px;
-        }
-        .processing-subtitle {
-            color: var(--text-dim);
-            font-size: 14px;
-            margin-bottom: 24px;
-        }
-
-        .steps {
-            text-align: left;
-            max-width: 360px;
-            margin: 0 auto;
-        }
-        .step {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            padding: 8px 0;
-            font-size: 14px;
-            color: var(--text-dim);
-            transition: color 0.3s;
-        }
-        .step.active { color: var(--text); }
-        .step.done { color: var(--green); }
-        .step-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: var(--border);
-            flex-shrink: 0;
-            transition: background 0.3s;
-        }
-        .step.active .step-dot {
-            background: var(--accent);
-            box-shadow: 0 0 8px var(--accent-glow);
-            animation: dot-pulse 1.2s ease-in-out infinite;
-        }
-        .step.done .step-dot { background: var(--green); }
-        @keyframes dot-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.4; }
-        }
-
-        .elapsed-time {
-            margin-top: 20px;
-            font-size: 13px;
-            color: var(--text-dim);
-            font-variant-numeric: tabular-nums;
-        }
-
-        /* ─── Results ─── */
-        .results {
-            display: none;
-            margin-top: 32px;
-        }
-        .results.visible { display: block; }
-
-        .result-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-            margin-bottom: 16px;
-        }
-        .result-card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 18px 24px;
-            border-bottom: 1px solid var(--border);
-        }
-        .result-card-title {
-            font-size: 16px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .result-card-body {
-            padding: 24px;
-        }
-
-        /* ─── AI Summary with Markdown-like rendering ─── */
-        .ai-summary {
-            font-size: 14px;
-            line-height: 1.8;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .ai-summary h1, .ai-summary h2, .ai-summary h3 {
-            font-weight: 700;
-            margin-top: 20px;
-            margin-bottom: 8px;
-        }
-
-        /* ─── Transcript Collapsible ─── */
-        .collapsible-header {
-            cursor: pointer;
-            user-select: none;
-            transition: background 0.2s;
-            border-bottom: none;
-        }
-        .collapsible-header:hover {
-            background: var(--surface-2);
-        }
-        .collapse-icon {
-            font-size: 12px;
-            transition: transform 0.3s;
-            color: var(--text-dim);
-        }
-        .collapsible-header.open .collapse-icon {
-            transform: rotate(180deg);
-        }
-        .collapsible-body {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.4s ease;
-        }
-        .collapsible-body.open {
-            max-height: 5000px;
-        }
-        .collapsible-body-inner {
-            padding: 0 24px 24px;
-        }
-
-        .transcript-entry {
-            padding: 12px 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 14px;
-        }
-        .transcript-entry:last-child { border-bottom: none; }
-        .transcript-speaker {
-            font-weight: 600;
-            color: var(--accent);
-            margin-right: 6px;
-        }
-        .transcript-time {
-            font-size: 11px;
-            color: var(--text-dim);
-            font-variant-numeric: tabular-nums;
-            margin-left: 4px;
-        }
-        .transcript-lang {
-            font-size: 10px;
-            padding: 1px 6px;
-            border-radius: 4px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            color: var(--text-dim);
-            margin-left: 6px;
-            text-transform: uppercase;
-            font-weight: 600;
-        }
-        .transcript-text {
-            margin-top: 4px;
-            color: var(--text);
-            line-height: 1.6;
-        }
-
-        /* ─── Action bar ─── */
-        .action-bar {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .action-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 8px 16px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-dim);
-            font-size: 13px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.2s;
-            text-decoration: none;
-        }
-        .action-btn:hover {
-            border-color: var(--accent);
-            color: var(--text);
-        }
-
-        .stats-row {
-            display: flex;
-            gap: 16px;
-            flex-wrap: wrap;
-        }
-        .stat {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 13px;
-            color: var(--text-dim);
-        }
-        .stat-value {
-            color: var(--text);
-            font-weight: 600;
-        }
-
-        .success-banner {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            flex-wrap: wrap;
-            gap: 12px;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 16px 24px;
-            margin-bottom: 16px;
-        }
-
-        /* ─── New Upload ─── */
-        .new-upload-btn {
-            margin-top: 24px;
-            text-align: center;
-        }
-        .new-upload-btn button {
-            background: none;
-            border: 1px solid var(--border);
-            color: var(--text-dim);
-            padding: 10px 24px;
-            border-radius: 8px;
-            font-size: 14px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .new-upload-btn button:hover {
-            border-color: var(--accent);
-            color: var(--text);
-        }
-
-        /* ─── RAG Chat ─── */
-        .chat-card {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: var(--radius);
-            overflow: hidden;
-            margin-bottom: 16px;
-        }
-        .chat-card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 18px 24px;
-            border-bottom: 1px solid var(--border);
-        }
-        .chat-card-title {
-            font-size: 16px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .chat-messages {
-            padding: 20px 24px;
-            max-height: 420px;
-            min-height: 120px;
-            overflow-y: auto;
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-        }
-        .chat-empty {
-            text-align: center;
-            color: var(--text-dim);
-            font-size: 14px;
-            padding: 32px 0;
-        }
-        .chat-empty-icon { font-size: 32px; margin-bottom: 8px; }
-
-        .chat-msg {
-            max-width: 85%;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 14px;
-            line-height: 1.6;
-            word-wrap: break-word;
-            white-space: pre-wrap;
-        }
-        .chat-msg.user {
-            align-self: flex-end;
-            background: var(--accent);
-            color: #fff;
-            border-bottom-right-radius: 4px;
-        }
-        .chat-msg.bot {
-            align-self: flex-start;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-bottom-left-radius: 4px;
-            color: var(--text);
-        }
-
-        .chat-typing {
-            align-self: flex-start;
-            display: none;
-            align-items: center;
-            gap: 4px;
-            padding: 10px 16px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            border-bottom-left-radius: 4px;
-        }
-        .chat-typing.visible { display: flex; }
-        .chat-typing-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: var(--text-dim);
-            animation: typing-bounce 1.4s ease-in-out infinite;
-        }
-        .chat-typing-dot:nth-child(2) { animation-delay: 0.2s; }
-        .chat-typing-dot:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes typing-bounce {
-            0%, 60%, 100% { transform: translateY(0); }
-            30% { transform: translateY(-6px); }
-        }
-
-        .chat-input-bar {
-            display: flex;
-            gap: 8px;
-            padding: 16px 24px;
-            border-top: 1px solid var(--border);
-            background: var(--surface);
-        }
-        .chat-input {
-            flex: 1;
-            padding: 10px 14px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            color: var(--text);
-            font-size: 14px;
-            font-family: inherit;
-            outline: none;
-            transition: border-color 0.2s;
-        }
-        .chat-input::placeholder { color: var(--text-dim); }
-        .chat-input:focus { border-color: var(--accent); }
-        .chat-send {
-            padding: 10px 18px;
-            background: var(--accent);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: filter 0.2s;
-            white-space: nowrap;
-        }
-        .chat-send:hover { filter: brightness(1.15); }
-        .chat-send:disabled { opacity: 0.5; cursor: not-allowed; filter: none; }
-
-        .chat-suggestions {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-            padding: 0 24px 16px;
-        }
-        .chat-suggestion {
-            padding: 6px 12px;
-            background: var(--surface-2);
-            border: 1px solid var(--border);
-            border-radius: 20px;
-            color: var(--text-dim);
-            font-size: 12px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .chat-suggestion:hover {
-            border-color: var(--accent);
-            color: var(--text);
-        }
-    </style>
-
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-    <style>
-        .markdown-body {
-            font-size: 15px;
-            line-height: 1.6;
-        }
-        .markdown-body h2 {
-            margin-top: 1.5em;
-            margin-bottom: 0.5em;
-            color: var(--accent);
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 0.3em;
-        }
-        .markdown-body ul {
-            padding-left: 20px;
-            margin-bottom: 1em;
-        }
-        .markdown-body li {
-            margin-bottom: 0.5em;
-        }
-        .markdown-body strong {
-            color: var(--text);
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div class="header-icon">🧠</div>
-            <h1>AI Meeting Intelligence</h1>
-            <p>Автономный протоколист совещаний</p>
-            <span class="badge">● 100% Offline</span>
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Steppe Hub</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >Steppe Hub <span data-i18n="tagline">Meeting intelligence</span></a
+      ><label
+        ><span data-i18n="interface">Interface</span>
+        <select id="locale">
+          <option value="en">English</option>
+          <option value="ru">Русский</option>
+        </select></label
+      >
+    </header>
+    <main>
+      <aside>
+        <nav id="appNav" aria-label="Workspace">
+          <button data-view="dashboard" data-i18n="dashboard">Dashboard</button
+          ><button data-view="meetings" data-i18n="meetings">Meetings</button
+          ><button data-view="upload" data-i18n="newRecording">
+            New recording</button
+          ><button data-view="settings" data-i18n="settings">Settings</button>
+        </nav>
+        <div class="library-heading">
+          <h2 data-i18n="recent">Recent meetings</h2>
+          <button id="refresh" data-i18n="refresh">Refresh</button>
         </div>
-
-        <!-- Upload Section -->
-        <div id="uploadCard" class="upload-card">
-            <input type="file" id="fileInput" accept="audio/*" hidden />
-
-            <div id="dropZone" class="drop-zone">
-                <div class="drop-zone-icon">🎙️</div>
-                <div class="drop-zone-text">
-                    Перетащите аудиофайл сюда или <strong id="browseLink">выберите</strong>
-                </div>
-                <div class="drop-zone-hint">MP3, WAV, M4A — до 500 MB</div>
+        <div id="library"></div>
+        <p class="muted" data-i18n="privacy">
+          Local processing. Audio is removed after processing by default.
+        </p>
+      </aside>
+      <div class="workspace">
+        <section id="dashboardPage" class="card">
+          <h1 id="dashboardTitle" data-i18n="dashboard">Dashboard</h1>
+          <p class="muted" data-i18n="dashboardHelp">
+            Your recordings and their processing status.
+          </p>
+          <div id="dashboardMeetings"></div>
+        </section>
+        <section id="settingsPage" class="card" hidden>
+          <h1 data-i18n="settings">Settings</h1>
+          <p class="muted" data-i18n="settingsHelp">
+            Configuration is read from .env. Restart the server after changing
+            it.
+          </p>
+          <dl id="health" class="settings-grid"></dl>
+          <button id="checkServices" data-i18n="checkServices">
+            Check services
+          </button>
+        </section>
+        <section id="uploadPage" class="card" hidden>
+          <h1 data-i18n="newRecording">New recording</h1>
+          <p class="muted" data-i18n="intro">
+            Upload a recording to find decisions, tasks and the moments behind
+            them.
+          </p>
+          <form id="uploadForm">
+            <label id="dropZone" for="fileInput"
+              ><strong data-i18n="drop"
+                >Drop a recording here or choose a file</strong
+              ><span>WAV · MP3 · M4A · FLAC · OGG</span
+              ><input
+                id="fileInput"
+                type="file"
+                accept=".wav,.mp3,.m4a,.flac,.ogg"
+                required
+            /></label>
+            <div class="row">
+              <label
+                ><span data-i18n="audioLanguage">Audio language</span
+                ><select id="audioLanguage">
+                  <option value="auto" data-i18n="auto">
+                    Detect automatically
+                  </option>
+                  <option value="en">English</option>
+                  <option value="ru">Русский</option>
+                </select></label
+              ><label
+                ><span data-i18n="summaryLanguage">Report language</span
+                ><select id="summaryLanguage">
+                  <option value="en">English</option>
+                  <option value="ru">Русский</option>
+                </select></label
+              ><button
+                class="primary"
+                id="uploadBtn"
+                type="submit"
+                data-i18n="process"
+              >
+                Process recording
+              </button>
             </div>
-
-            <div id="fileInfo" class="file-info">
-                <span class="file-info-icon">🎵</span>
-                <div class="file-info-details">
-                    <div id="fileName" class="file-info-name"></div>
-                    <div id="fileSize" class="file-info-size"></div>
-                </div>
-                <button id="removeFile" class="file-info-remove" title="Удалить">✕</button>
-            </div>
-
-            <button id="uploadBtn" class="upload-btn">
-                Обработать ИИ →
+          </form>
+          <progress id="uploadProgress" value="0" max="100" hidden></progress>
+        </section>
+        <p id="message" role="status" aria-live="polite"></p>
+        <section id="meeting" class="card" hidden>
+          <div class="row">
+            <h2 id="meetingTitle"></h2>
+            <button id="retry" data-i18n="retry" hidden>Retry analysis</button
+            ><button id="delete" class="danger" data-i18n="delete">
+              Delete meeting
             </button>
-        </div>
-
-        <!-- Processing State -->
-        <div id="processingCard" class="processing-card">
-            <div class="brain-animation">
-                <div class="brain-ring"></div>
-                <div class="brain-ring"></div>
-                <span class="brain-emoji">🧠</span>
+          </div>
+          <p id="status" role="status"></p>
+          <progress id="processingProgress" max="100" value="0"></progress>
+          <p id="warnings" class="muted"></p>
+          <audio id="player" controls hidden></audio>
+          <nav id="tabs">
+            <button data-tab="report" data-i18n="report">Report</button
+            ><button data-tab="transcript" data-i18n="transcript">
+              Transcript</button
+            ><button data-tab="actions" data-i18n="actions">Action items</button
+            ><button data-tab="chat" data-i18n="chat">AI Chat</button
+            ><button data-tab="map" data-i18n="map">Mind map</button
+            ><button data-tab="exports" data-i18n="exports">Export</button>
+          </nav>
+          <div id="report" class="panel"></div>
+          <div id="actions" class="panel" hidden></div>
+          <div id="transcript" class="panel" hidden>
+            <div class="row">
+              <label
+                ><span data-i18n="search">Search transcript</span
+                ><input id="search" type="search" /></label
+              ><button id="copy" data-i18n="copy">Copy transcript</button>
             </div>
-            <div class="processing-title">Нейросеть думает...</div>
-            <div class="processing-subtitle">Анализируем вашу встречу. Это может занять пару минут.</div>
-
-            <div class="steps">
-                <div class="step active" data-step="1">
-                    <span class="step-dot"></span>
-                    Диаризация — определяем спикеров
-                </div>
-                <div class="step" data-step="2">
-                    <span class="step-dot"></span>
-                    Транскрипция — распознаём речь
-                </div>
-                <div class="step" data-step="3">
-                    <span class="step-dot"></span>
-                    ИИ-анализ — генерируем протокол
-                </div>
+            <div id="speakers"></div>
+            <div id="segments"></div>
+          </div>
+          <div id="chat" class="panel" hidden>
+            <p class="muted" data-i18n="chatHelp">
+              Answers use retrieved transcript passages. Check the cited moments
+              against your recording.
+            </p>
+            <div id="messages" aria-live="polite"></div>
+            <form id="chatForm" class="row">
+              <label class="grow"
+                ><span data-i18n="question">Ask about this meeting</span
+                ><input id="question" maxlength="1000" required /></label
+              ><button id="ask" class="primary" data-i18n="ask">Ask</button>
+            </form>
+          </div>
+          <div id="map" class="panel" hidden>
+            <div class="row">
+              <button id="zoomIn" aria-label="Zoom in">+</button
+              ><button id="zoomOut" aria-label="Zoom out">−</button
+              ><button id="svg" data-i18n="downloadSvg">Download SVG</button>
             </div>
-
-            <div class="elapsed-time">Прошло: <span id="elapsed">0:00</span></div>
-        </div>
-
-        <!-- Results -->
-        <div id="results" class="results">
-            <div class="success-banner">
-                <div class="stats-row">
-                    <div class="stat">⏱️ <span class="stat-value" id="statTime">—</span></div>
-                    <div class="stat">🗣️ Спикеров: <span class="stat-value" id="statSpeakers">—</span></div>
-                    <div class="stat">💬 Фраз: <span class="stat-value" id="statSegments">—</span></div>
-                </div>
-                <div class="action-bar">
-                    <a href="/api/export/csv" class="action-btn">📥 CSV</a>
-                    <a href="/api/export/json" class="action-btn">📥 JSON</a>
-                    <button class="action-btn" id="pdfBtn">📥 PDF</button>
-                    <button class="action-btn" id="copyBtn">📋 Копировать</button>
-                    <button class="action-btn" id="diagramBtn">🎨 Excalidraw</button>
-                </div>
-            </div>
-
-            <!-- AI Protocol -->
-            <div class="result-card">
-                <div class="result-card-header">
-                    <span class="result-card-title">📋 ИИ-Протокол</span>
-                </div>
-                <div class="result-card-body">
-                    <div id="aiSummary" class="ai-summary"></div>
-                    <div id="diagramContainer" class="ai-summary" style="display: none; border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px;"></div>
-                </div>
-            </div>
-
-            <!-- Transcript (collapsible) -->
-            <div class="result-card">
-                <div class="collapsible-header result-card-header" id="transcriptToggle">
-                    <span class="result-card-title">🗣️ Расшифровка по спикерам</span>
-                    <span class="collapse-icon">▼</span>
-                </div>
-                <div class="collapsible-body" id="transcriptBody">
-                    <div class="collapsible-body-inner" id="transcriptContent">
-                    </div>
-                </div>
-            </div>
-
-            <!-- RAG Chat -->
-            <div class="chat-card">
-                <div class="chat-card-header">
-                    <span class="chat-card-title">💬 Чат по встрече</span>
-                </div>
-                <div class="chat-messages" id="chatMessages">
-                    <div class="chat-empty" id="chatEmpty">
-                        <div class="chat-empty-icon">💬</div>
-                        Задайте вопрос по содержимому встречи
-                    </div>
-                    <div class="chat-typing" id="chatTyping">
-                        <span class="chat-typing-dot"></span>
-                        <span class="chat-typing-dot"></span>
-                        <span class="chat-typing-dot"></span>
-                    </div>
-                </div>
-                <div class="chat-suggestions" id="chatSuggestions"></div>
-                <div class="chat-input-bar">
-                    <input type="text" class="chat-input" id="chatInput" placeholder="Спросите что-нибудь о встрече..." />
-                    <button class="chat-send" id="chatSendBtn">Отправить</button>
-                </div>
-            </div>
-
-            <div class="new-upload-btn">
-                <button id="newUploadBtn">↻ Загрузить другой файл</button>
-            </div>
-        </div>
-    </div>
-
-    <script>
-        // ─── DOM refs ───
-        const fileInput     = document.getElementById('fileInput');
-        const dropZone      = document.getElementById('dropZone');
-        const browseLink    = document.getElementById('browseLink');
-        const fileInfo      = document.getElementById('fileInfo');
-        const fileName      = document.getElementById('fileName');
-        const fileSize      = document.getElementById('fileSize');
-        const removeFile    = document.getElementById('removeFile');
-        const uploadBtn     = document.getElementById('uploadBtn');
-        const uploadCard    = document.getElementById('uploadCard');
-        const processingCard = document.getElementById('processingCard');
-        const results       = document.getElementById('results');
-        const elapsedEl     = document.getElementById('elapsed');
-
-        let selectedFile = null;
-        let timerInterval = null;
-
-        // ─── Helpers ───
-        function formatBytes(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / 1048576).toFixed(1) + ' MB';
-        }
-
-        function formatTime(sec) {
-            const m = Math.floor(sec / 60);
-            const s = sec % 60;
-            return m + ':' + String(s).padStart(2, '0');
-        }
-
-        function setFile(file) {
-            if (!file) return;
-            selectedFile = file;
-            fileName.textContent = file.name;
-            fileSize.textContent = formatBytes(file.size);
-            fileInfo.classList.add('visible');
-            uploadBtn.classList.add('visible');
-        }
-
-        function clearFile() {
-            selectedFile = null;
-            fileInput.value = '';
-            fileInfo.classList.remove('visible');
-            uploadBtn.classList.remove('visible');
-        }
-
-        function setStep(n) {
-            document.querySelectorAll('.step').forEach(s => {
-                const sn = parseInt(s.dataset.step);
-                s.classList.remove('active', 'done');
-                if (sn < n) s.classList.add('done');
-                if (sn === n) s.classList.add('active');
-            });
-        }
-
-        function showScreen(screen) {
-            uploadCard.style.display      = screen === 'upload'     ? '' : 'none';
-            processingCard.classList.toggle('visible', screen === 'processing');
-            results.classList.toggle('visible', screen === 'results');
-        }
-
-        function escapeHtml(text) {
-            const el = document.createElement('span');
-            el.textContent = text;
-            return el.innerHTML;
-        }
-
-        // ─── File Input ───
-        browseLink.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('click', (e) => {
-            if (e.target !== browseLink) fileInput.click();
-        });
-        fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
-        removeFile.addEventListener('click', clearFile);
-
-        // ─── Drag & Drop ───
-        ['dragenter', 'dragover'].forEach(evt => {
-            dropZone.addEventListener(evt, e => {
-                e.preventDefault();
-                dropZone.classList.add('dragover');
-            });
-        });
-        ['dragleave', 'drop'].forEach(evt => {
-            dropZone.addEventListener(evt, e => {
-                e.preventDefault();
-                dropZone.classList.remove('dragover');
-            });
-        });
-        dropZone.addEventListener('drop', e => {
-            const file = e.dataTransfer.files[0];
-            if (file) setFile(file);
-        });
-
-        // ─── Upload & Process ───
-        uploadBtn.addEventListener('click', async () => {
-            if (!selectedFile) return;
-
-            showScreen('processing');
-            setStep(1);
-
-            let seconds = 0;
-            elapsedEl.textContent = '0:00';
-            timerInterval = setInterval(() => {
-                seconds++;
-                elapsedEl.textContent = formatTime(seconds);
-
-                // Simulate step progress based on elapsed time
-                if (seconds === 5)  setStep(2);
-                if (seconds === 15) setStep(3);
-            }, 1000);
-
-            const formData = new FormData();
-            formData.append('file', selectedFile);
-
-            try {
-                const response = await fetch('/api/process', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                clearInterval(timerInterval);
-
-                if (!response.ok) throw new Error('Ошибка сервера: ' + response.status);
-
-                const data = await response.json();
-                renderResults(data, seconds);
-                
-                showScreen('results');
-                
-                // Fetch dynamic Q&A pairs in background
-                document.getElementById('chatSuggestions').innerHTML = '<span style="color:var(--text-dim);font-size:12px;">⏳ Генерирую умные вопросы...</span>';
-                fetch('/api/generate_qa')
-                    .then(res => res.json())
-                    .then(data => {
-                        const container = document.getElementById('chatSuggestions');
-                        container.innerHTML = '';
-                        if (data.qa_pairs && data.qa_pairs.length > 0) {
-                            data.qa_pairs.forEach(pair => {
-                                const chip = document.createElement('span');
-                                chip.className = 'chat-suggestion';
-                                chip.textContent = pair.q;
-                                chip.addEventListener('click', () => {
-                                    // Instantiate instant Q&A response
-                                    addChatMessage(pair.q, 'user'); document.getElementById('chatSuggestions').style.display = 'none';
-                                    addChatMessage(pair.a, 'bot');
-                                });
-                                container.appendChild(chip);
-                            });
-                        }
-                    })
-                    .catch(err => {
-                        document.getElementById('chatSuggestions').innerHTML = '';
-                        console.error('QA Error:', err);
-                    });
-
-            } catch (err) {
-                clearInterval(timerInterval);
-                showScreen('upload');
-                alert('Ошибка: ' + err.message);
-            }
-        });
-
-        // ─── Render Results ───
-        function renderResults(data, elapsed) {
-            // Stats
-            document.getElementById('statTime').textContent = formatTime(elapsed);
-            const speakers = new Set(data.raw_data.map(r => r.speaker));
-            document.getElementById('statSpeakers').textContent = speakers.size;
-            document.getElementById('statSegments').textContent = data.raw_data.length;
-
-            // AI Summary
-            window.rawAiSummary = data.ai_summary;
-            document.getElementById('aiSummary').innerHTML = '<div class="markdown-body">' + marked.parse(data.ai_summary) + '</div>';
-
-            // Transcript entries
-            const container = document.getElementById('transcriptContent');
-            container.innerHTML = '';
-            data.raw_data.forEach(item => {
-                const entry = document.createElement('div');
-                entry.className = 'transcript-entry';
-                entry.innerHTML = `
-                    <div>
-                        <span class="transcript-speaker">${escapeHtml(item.speaker)}</span>
-                        <span class="transcript-time">${item.start.toFixed(1)}s — ${item.end.toFixed(1)}s</span>
-                        <span class="transcript-lang">${escapeHtml(item.language)}</span>
-                    </div>
-                    <div class="transcript-text">${escapeHtml(item.text)}</div>
-                `;
-                container.appendChild(entry);
-            });
-        }
-
-        // ─── Collapsible Transcript ───
-        document.getElementById('transcriptToggle').addEventListener('click', () => {
-            const header = document.getElementById('transcriptToggle');
-            const body   = document.getElementById('transcriptBody');
-            header.classList.toggle('open');
-            body.classList.toggle('open');
-        });
-
-        // ─── Copy ───
-        document.getElementById('copyBtn').addEventListener('click', () => {
-            const text = window.rawAiSummary || document.getElementById('aiSummary').innerText;
-            const showCopied = () => {
-                const btn = document.getElementById('copyBtn');
-                btn.textContent = '✅ Скопировано';
-                setTimeout(() => btn.textContent = '📋 Копировать', 2000);
-            };
-            
-            if (navigator.clipboard && window.isSecureContext) {
-                navigator.clipboard.writeText(text).then(showCopied).catch(e => console.error(e));
-            } else {
-                let textArea = document.createElement("textarea");
-                textArea.value = text;
-                textArea.style.position = "fixed";
-                document.body.appendChild(textArea);
-                textArea.focus();
-                textArea.select();
-                try {
-                    document.execCommand('copy');
-                    showCopied();
-                } catch (err) {
-                    console.error('Fallback copy failed', err);
-                }
-                document.body.removeChild(textArea);
-            }
-        });
-
-        // ─── New Upload ───
-        document.getElementById('newUploadBtn').addEventListener('click', () => {
-            clearFile();
-            showScreen('upload');
-        });
-
-        // ─── RAG Chat ───
-        const chatInput    = document.getElementById('chatInput');
-        const chatSendBtn  = document.getElementById('chatSendBtn');
-        const chatMessages = document.getElementById('chatMessages');
-        const chatTyping   = document.getElementById('chatTyping');
-        const chatEmpty    = document.getElementById('chatEmpty');
-        let chatBusy = false;
-
-        function addChatMessage(text, role) {
-            // Hide empty state
-            chatEmpty.style.display = 'none';
-
-            const msg = document.createElement('div');
-            msg.className = 'chat-msg ' + role;
-            msg.textContent = text;
-            // Insert before typing indicator
-            chatMessages.insertBefore(msg, chatTyping);
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-
-        async function sendChatMessage(question) {
-            if (!question.trim() || chatBusy) return;
-
-            chatBusy = true;
-            chatSendBtn.disabled = true;
-            chatInput.value = '';
-
-            // Hide suggestions after first message
-            document.getElementById('chatSuggestions').style.display = 'none';
-
-            addChatMessage(question, 'user');
-
-            // Show typing
-            chatTyping.classList.add('visible');
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-
-            try {
-                const resp = await fetch('/api/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ question })
-                });
-
-                if (!resp.ok) throw new Error('Ошибка сервера');
-
-                const data = await resp.json();
-                chatTyping.classList.remove('visible');
-
-                if (data.error) {
-                    addChatMessage('⚠️ ' + data.error, 'bot');
-                } else {
-                    addChatMessage(data.answer, 'bot');
-                }
-            } catch (err) {
-                chatTyping.classList.remove('visible');
-                addChatMessage('❌ Ошибка: ' + err.message, 'bot');
-            } finally {
-                chatBusy = false;
-                chatSendBtn.disabled = false;
-                chatInput.focus();
-            }
-        }
-
-        chatSendBtn.addEventListener('click', () => sendChatMessage(chatInput.value));
-        chatInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendChatMessage(chatInput.value);
-            }
-        });
-
-        // Suggestion chips
-    // ─── PDF Export ───
-    document.getElementById('pdfBtn').addEventListener('click', () => {
-        const element = document.getElementById('aiSummary');
-        const opt = {
-            margin:       10,
-            filename:     'AI-Protocol.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2, useCORS: true },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-        // Add a temporary white background for the PDF since the app is in dark mode
-        const originalBg = element.style.background;
-        const originalColor = element.style.color;
-        element.style.background = 'white';
-        element.style.color = 'black';
-        
-        html2pdf().set(opt).from(element).save().then(() => {
-            element.style.background = originalBg;
-            element.style.color = originalColor;
-        });
-    });
-</script>
-</body>
+            <p class="muted" data-i18n="mapHelp">
+              A compact view of topics, decisions and tasks. Scroll to explore;
+              select a node to see its evidence.
+            </p>
+            <div id="mapCanvas"></div>
+          </div>
+          <div id="exports" class="panel" hidden>
+            <p data-i18n="exportHelp">
+              Export the current meeting. JSON preserves the original transcript
+              and speaker aliases.
+            </p>
+            <div id="downloadLinks" class="row"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer data-i18n="footer">
+      Steppe Hub · Local meeting intelligence · Verify AI outputs before acting.
+    </footer>
+  </body>
 </html>
-
-<!-- Mermaid for Excalidraw-like rendering -->
-<script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-    mermaid.initialize({ startOnLoad: false, theme: 'dark', look: 'handDrawn' });
-    window.mermaid = mermaid;
-
-    document.getElementById('diagramBtn').addEventListener('click', async () => {
-        const btn = document.getElementById('diagramBtn');
-        if (btn.textContent.includes('Рисую')) return;
-        
-        const originalText = btn.textContent;
-        btn.textContent = '⏳ Рисую...';
-        
-        try {
-            const res = await fetch('/api/diagram');
-            const data = await res.json();
-            
-            if (data.error) {
-                alert(data.error);
-                btn.textContent = originalText;
-                return;
-            }
-            
-            const container = document.getElementById('diagramContainer');
-            container.style.display = 'block';
-            
-            container.innerHTML = `
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <span style="color: var(--accent); font-weight: bold;">Ментальная карта</span>
-                    <button class="action-btn" id="downloadDiagramBtn" style="padding: 4px 12px; font-size: 12px;">📸 Скачать схему (SVG)</button>
-                </div>
-                <div id="mermaidWrapper"><pre class="mermaid"></pre></div>
-            `;
-            // Безопасно вставляем код без HTML парсинга
-            container.querySelector('.mermaid').textContent = data.mermaid_code;
-
-            
-            await window.mermaid.run({ nodes: [container.querySelector('.mermaid')] });
-            
-            // Attach download listener
-            document.getElementById('downloadDiagramBtn').addEventListener('click', () => {
-                const svg = document.querySelector('#mermaidWrapper svg');
-                if (!svg) return;
-                
-                const clonedSvg = svg.cloneNode(true);
-                const box = svg.getBoundingClientRect();
-                clonedSvg.setAttribute('width', box.width);
-                clonedSvg.setAttribute('height', box.height);
-                
-                // Add dark background to SVG so it looks good when opened directly
-                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-                rect.setAttribute("width", "100%");
-                rect.setAttribute("height", "100%");
-                rect.setAttribute("fill", "#0f0f13");
-                clonedSvg.insertBefore(rect, clonedSvg.firstChild);
-                
-                // Add xmlns if missing so it opens cleanly in image viewers
-                if (!clonedSvg.getAttribute('xmlns')) {
-                    clonedSvg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-                }
-                
-                const svgData = new XMLSerializer().serializeToString(clonedSvg);
-                const blob = new Blob([svgData], {type: 'image/svg+xml;charset=utf-8'});
-                const url = URL.createObjectURL(blob);
-                
-                const a = document.createElement('a');
-                a.download = 'meeting_diagram.svg';
-                a.href = url;
-                a.click();
-                
-                setTimeout(() => URL.revokeObjectURL(url), 100);
-            });
-
-            btn.textContent = '✅ Готово';
-        } catch (e) {
-            console.error(e);
-            alert('Ошибка при генерации диаграммы');
-            btn.textContent = '❌ Ошибка';
-        }
-    });
-</script>

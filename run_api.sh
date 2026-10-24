@@ -1,10 +1,8 @@
-#!/bin/bash
-if [ -f .env ]; then
-  source .env
-else
-  echo "❌ ОШИБКА: Файл .env не найден! Скопируйте .env.example в .env и вставьте ваш HF_TOKEN."
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+if [[ ! -x .venv/bin/python ]]; then
+  echo 'Create .venv and install backend/requirements-ai.txt; see README.' >&2
   exit 1
 fi
-export DYLD_LIBRARY_PATH=/opt/homebrew/lib:$DYLD_LIBRARY_PATH
-source backend/venv/bin/activate
-cd backend && uvicorn api.main:app --host 0.0.0.0 --port 8000
+exec .venv/bin/python -m uvicorn api.main:app --app-dir backend --host 127.0.0.1 --port "${PORT:-8000}" --workers 1

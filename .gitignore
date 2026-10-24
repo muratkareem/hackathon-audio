@@ -43,3 +43,11 @@ data/*.mp3
 data/*.wav
 :memory:.ses
 .env
+
+# Private runtime state and generated meeting artifacts
+data/runtime/
+data/protocol.*
+*.log
+.pytest_cache/
+.ruff_cache/
+.coverage

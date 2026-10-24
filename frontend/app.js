@@ -1,0 +1,619 @@
+"use strict";
+const $ = (id) => document.getElementById(id);
+let dictionary,
+  locale = localStorage.getItem("steppe-language") || "en",
+  current = null,
+  health = {},
+  poll,
+  scale = 1,
+  view = "dashboard",
+  libraryMeetings = [];
+const t = (key) => dictionary?.[locale]?.[key] || dictionary?.en?.[key] || key;
+const element = (tag, text, className) => {
+  const node = document.createElement(tag);
+  if (text !== undefined) node.textContent = text;
+  if (className) node.className = className;
+  return node;
+};
+const time = (value) =>
+  new Date(Math.max(0, value) * 1000).toISOString().slice(11, 19);
+function message(text, error = false) {
+  $("message").textContent = text;
+  $("message").classList.toggle("error", error);
+}
+async function api(url, options) {
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    let body = {};
+    try {
+      body = await response.json();
+    } catch {}
+    throw new Error(
+      typeof body.detail === "string" ? t(body.detail) : t("error"),
+    );
+  }
+  return response.status === 204 ? null : response.json();
+}
+function localize() {
+  document.documentElement.lang = locale;
+  $("locale").value = locale;
+  document
+    .querySelectorAll("[data-i18n]")
+    .forEach((n) => (n.textContent = t(n.dataset.i18n)));
+  $("appNav").ariaLabel = t("dashboard");
+  $("zoomIn").ariaLabel = t("zoomIn");
+  $("zoomOut").ariaLabel = t("zoomOut");
+  if (current) render(current);
+  renderSettings();
+  showView(view);
+  refresh();
+}
+function tab(name) {
+  document
+    .querySelectorAll(".panel")
+    .forEach((n) => (n.hidden = n.id !== name));
+  document.querySelectorAll("[data-tab]").forEach((n) => {
+    n.classList.toggle("active", n.dataset.tab === name);
+    n.setAttribute("aria-pressed", String(n.dataset.tab === name));
+  });
+}
+async function refresh() {
+  try {
+    const meetings = await api("/api/meetings");
+    libraryMeetings = meetings;
+    renderDashboard();
+    $("library").replaceChildren();
+    if (!meetings.length)
+      $("library").append(element("p", t("emptyLibrary"), "muted"));
+    meetings.slice(0, 5).forEach((m) => {
+      const b = element("button", m.title);
+      b.append(element("small", t(m.status)));
+      b.onclick = () => openMeeting(m.id);
+      $("library").append(b);
+    });
+  } catch (e) {
+    message(e.message, true);
+  }
+}
+async function openMeeting(id, navigate = true) {
+  clearTimeout(poll);
+  try {
+    const m = await api("/api/meetings/" + id);
+    if (current?.id !== id) {
+      $("messages").replaceChildren();
+      $("search").value = "";
+    }
+    current = m;
+    if (navigate) showView("meeting");
+    render(m);
+    if (["queued", "processing"].includes(m.status))
+      poll = setTimeout(() => openMeeting(id, false), 1500);
+    else refresh();
+  } catch (e) {
+    message(e.message, true);
+  }
+}
+function refs(ids) {
+  const span = element("span");
+  ids.forEach((id) => {
+    const segment = current.raw_data.find((s) => s.id === id);
+    if (!segment) return;
+    const b = element("button", time(segment.start), "reference");
+    b.onclick = () => focusSegment(id);
+    span.append(b);
+  });
+  return span;
+}
+function focusSegment(id) {
+  tab("transcript");
+  $("search").value = "";
+  renderTranscript();
+  const n = $("segment-" + id);
+  n?.classList.add("match");
+  n?.scrollIntoView({ behavior: "smooth", block: "center" });
+  const s = current.raw_data.find((s) => s.id === id);
+  if (s && health.retain_audio) $("player").currentTime = s.start;
+}
+function render(m) {
+  $("meeting").hidden = view !== "meeting";
+  $("meetingTitle").textContent = m.title;
+  $("status").textContent = t(m.status) + " · " + t(m.stage);
+  $("processingProgress").value = m.progress;
+  $("processingProgress").hidden = !["queued", "processing"].includes(m.status);
+  $("retry").hidden = !["partial", "failed"].includes(m.status);
+  $("retry").textContent = t(m.raw_data.length ? "retry" : "retryProcessing");
+  $("delete").disabled = ["queued", "processing"].includes(m.status);
+  $("warnings").textContent = [
+    m.error ? t(m.error) : "",
+    ...(m.warnings || []).map(t),
+    m.diarization_status ? t(m.diarization_status) : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  $("player").hidden = !health.retain_audio;
+  if (health.retain_audio && $("player").dataset.meeting !== m.id) {
+    $("player").src = "/api/meetings/" + m.id + "/audio";
+    $("player").dataset.meeting = m.id;
+  }
+  renderReport();
+  renderActions();
+  renderTranscript();
+  renderMap();
+  $("downloadLinks").replaceChildren();
+  ["txt", "md", "json", "csv", "pdf"].forEach((kind) => {
+    const a = element("a", kind.toUpperCase());
+    a.href = `/api/meetings/${m.id}/export/${kind}`;
+    a.download = "meeting." + kind;
+    a.onclick = async (event) => {
+      event.preventDefault();
+      try {
+        const r = await fetch(a.href);
+        if (!r.ok) {
+          const err = await r.json();
+          throw new Error(t(err.detail));
+        }
+        saveBlob(await r.blob(), "meeting." + kind);
+      } catch (e) {
+        message(e.message, true);
+      }
+    };
+    $("downloadLinks").append(a);
+  });
+}
+function renderReport() {
+  $("report").replaceChildren();
+  if (!current.report) {
+    $("report").append(element("p", t("emptyReport"), "muted"));
+    return;
+  }
+  Object.entries(current.report).forEach(([key, value]) => {
+    $("report").append(element("h3", t(key)));
+    if (typeof value === "string") {
+      $("report").append(element("p", value));
+      return;
+    }
+    const ul = element("ul");
+    value.forEach((item) => {
+      const li = element("li", typeof item === "string" ? item : item.text);
+      if (typeof item === "object") {
+        if (key === "actions")
+          li.append(
+            element(
+              "p",
+              (item.owner || t("unspecified")) +
+                " · " +
+                (item.deadline || t("unspecified")),
+              "muted",
+            ),
+          );
+        li.append(refs(item.references));
+      }
+      ul.append(li);
+    });
+    $("report").append(ul);
+  });
+}
+function speaker(s) {
+  return current.speaker_names[s.speaker] || s.speaker || t("unknown");
+}
+function renderTranscript() {
+  $("segments").replaceChildren();
+  const query = $("search").value.toLocaleLowerCase();
+  current.raw_data.forEach((s) => {
+    const entry = element("article", undefined, "segment");
+    entry.id = "segment-" + s.id;
+    entry.hidden = !!query && !s.text.toLocaleLowerCase().includes(query);
+    entry.classList.toggle("match", !!query && !entry.hidden);
+    const seek = element(
+      "button",
+      time(s.start) + " – " + time(s.end),
+      "timestamp",
+    );
+    seek.onclick = () => {
+      if (health.retain_audio) $("player").currentTime = s.start;
+    };
+    seek.disabled = !health.retain_audio;
+    if (seek.disabled) seek.title = t("audioRemoved");
+    entry.append(
+      seek,
+      element("span", speaker(s), "speaker"),
+      element("p", s.text),
+    );
+    $("segments").append(entry);
+  });
+  if (!current.raw_data.length)
+    $("segments").append(element("p", t("emptyTranscript"), "muted"));
+  $("speakers").replaceChildren();
+  [...new Set(current.raw_data.map((s) => s.speaker).filter(Boolean))].forEach(
+    (label) => {
+      const b = element("button", current.speaker_names[label] || label);
+      b.title = t("rename");
+      b.onclick = async () => {
+        const name = prompt(t("rename"), current.speaker_names[label] || label);
+        if (!name?.trim()) return;
+        try {
+          current = await api(`/api/meetings/${current.id}/speakers`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              names: { ...current.speaker_names, [label]: name },
+            }),
+          });
+          render(current);
+        } catch (e) {
+          message(e.message, true);
+        }
+      };
+      $("speakers").append(b);
+    },
+  );
+}
+function saveBlob(blob, name) {
+  const url = URL.createObjectURL(blob),
+    a = element("a");
+  a.href = url;
+  a.download = name;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+function svgNode(tag, attrs, text) {
+  const n = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  Object.entries(attrs).forEach(([k, v]) => n.setAttribute(k, String(v)));
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+function renderMap() {
+  const root = $("mapCanvas");
+  root.replaceChildren();
+  ["zoomIn", "zoomOut", "svg"].forEach(
+    (id) => ($(id).disabled = !current.report),
+  );
+  if (!current.report) {
+    root.append(element("p", t("noReportMap")));
+    return;
+  }
+  const nodes = [{ text: current.title, refs: [], heading: true }];
+  ["topics", "decisions", "actions"].forEach((key) => {
+    nodes.push({ text: t(key), refs: [], heading: true });
+    current.report[key]
+      .slice(0, 8)
+      .forEach((item) =>
+        nodes.push({
+          text: typeof item === "string" ? item : item.text,
+          refs: item.references || [],
+        }),
+      );
+  });
+  const height = nodes.length * 78 + 24;
+  const svg = svgNode("svg", {
+    viewBox: `0 0 760 ${height}`,
+    width: 760 * scale,
+    height: height * scale,
+    role: "img",
+    "aria-label": t("map"),
+  });
+  svg.append(svgNode("rect", { width: 760, height, fill: "#ffffff" }));
+  nodes.forEach((item, i) => {
+    const y = i * 78 + 12,
+      x = item.heading ? 20 : 70;
+    const g = svgNode(
+      "g",
+      item.refs.length ? { tabindex: 0, role: "button" } : {},
+    );
+    if (i)
+      svg.append(
+        svgNode("path", {
+          d: `M 40 ${y - 20} V ${y + 25} H ${x}`,
+          stroke: "#b5cdbf",
+          fill: "none",
+        }),
+      );
+    g.append(
+      svgNode("rect", {
+        x,
+        y,
+        width: 740 - x,
+        height: 64,
+        rx: 8,
+        fill: item.heading ? "#e4f0e8" : "#f5f7f5",
+        stroke: "#dce4df",
+      }),
+    );
+    const text = svgNode("text", {
+      x: x + 14,
+      y: y + 25,
+      fill: "#1e302b",
+      "font-size": 14,
+      "font-family": "sans-serif",
+    });
+    let words = Array.from(item.text),
+      line1 = words.slice(0, 70).join(""),
+      line2 = words.slice(70, 140).join("") + (words.length > 140 ? "…" : "");
+    text.append(
+      svgNode("tspan", { x: x + 14 }, line1),
+      svgNode("tspan", { x: x + 14, dy: 20 }, line2),
+    );
+    g.append(text, svgNode("title", {}, item.text));
+    if (item.refs.length) {
+      g.onclick = () => focusSegment(item.refs[0]);
+      g.onkeydown = (e) => {
+        if (e.key === "Enter") focusSegment(item.refs[0]);
+      };
+    }
+    svg.append(g);
+  });
+  root.append(svg);
+}
+async function init() {
+  dictionary = await (await fetch("i18n.json")).json();
+  if (!dictionary[locale]) locale = "en";
+  localize();
+  tab("report");
+  $("health").textContent = t("checking");
+  await checkServices();
+}
+document
+  .querySelectorAll("[data-view]")
+  .forEach((button) => (button.onclick = () => showView(button.dataset.view)));
+$("checkServices").onclick = checkServices;
+$("locale").onchange = () => {
+  locale = $("locale").value;
+  localStorage.setItem("steppe-language", locale);
+  localize();
+};
+$("refresh").onclick = refresh;
+document
+  .querySelectorAll("[data-tab]")
+  .forEach((b) => (b.onclick = () => tab(b.dataset.tab)));
+$("search").oninput = renderTranscript;
+$("copy").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(
+      current.raw_data
+        .map((s) => `[${time(s.start)}] ${speaker(s)}: ${s.text}`)
+        .join("\n"),
+    );
+    message(t("copied"));
+  } catch {
+    message(t("error"), true);
+  }
+};
+["dragenter", "dragover"].forEach((event) =>
+  $("dropZone").addEventListener(event, (e) => {
+    e.preventDefault();
+    $("dropZone").classList.add("dragging");
+  }),
+);
+["dragleave", "drop"].forEach((event) =>
+  $("dropZone").addEventListener(event, (e) => {
+    e.preventDefault();
+    $("dropZone").classList.remove("dragging");
+  }),
+);
+$("dropZone").addEventListener("drop", (e) => {
+  if (e.dataTransfer.files.length) $("fileInput").files = e.dataTransfer.files;
+});
+$("uploadForm").onsubmit = (e) => {
+  e.preventDefault();
+  const file = $("fileInput").files[0];
+  if (!file) return;
+  if (health.max_upload_bytes && file.size > health.max_upload_bytes) {
+    message(t("upload_too_large"), true);
+    return;
+  }
+  const data = new FormData();
+  data.append("file", file);
+  data.append("audio_language", $("audioLanguage").value);
+  data.append("summary_language", $("summaryLanguage").value);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/process");
+  $("uploadBtn").disabled = true;
+  $("uploadProgress").hidden = false;
+  $("uploadProgress").value = 0;
+  message(t("uploading"));
+  xhr.upload.onprogress = (e) => {
+    if (e.lengthComputable)
+      $("uploadProgress").value = (e.loaded / e.total) * 100;
+  };
+  xhr.onload = () => {
+    try {
+      const result = JSON.parse(xhr.responseText);
+      if (xhr.status !== 202)
+        throw new Error(
+          t(typeof result.detail === "string" ? result.detail : "error"),
+        );
+      message("");
+      openMeeting(result.id);
+      refresh();
+    } catch (error) {
+      message(error.message, true);
+    }
+  };
+  xhr.onerror = () => message(t("error"), true);
+  xhr.onloadend = () => {
+    $("uploadBtn").disabled = false;
+    $("uploadProgress").hidden = true;
+  };
+  xhr.send(data);
+};
+$("delete").onclick = async () => {
+  if (!confirm(t("confirmDelete"))) return;
+  try {
+    await api("/api/meetings/" + current.id, { method: "DELETE" });
+    clearTimeout(poll);
+    current = null;
+    showView("meetings");
+    refresh();
+  } catch (e) {
+    message(e.message, true);
+  }
+};
+$("retry").onclick = async () => {
+  try {
+    await api(`/api/meetings/${current.id}/retry`, { method: "POST" });
+    openMeeting(current.id);
+  } catch (e) {
+    message(e.message, true);
+  }
+};
+$("chatForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const question = $("question").value.trim();
+  if (!question) return;
+  const id = current.id;
+  $("messages").append(element("div", question, "bubble question"));
+  $("question").value = "";
+  $("ask").disabled = true;
+  $("ask").textContent = t("answering");
+  $("messages").setAttribute("aria-busy", "true");
+  try {
+    const result = await api(`/api/meetings/${id}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, language: locale }),
+    });
+    if (current?.id === id) {
+      const bubble = element("div", result.answer, "bubble");
+      bubble.append(refs(result.references));
+      $("messages").append(bubble);
+    }
+  } catch (error) {
+    if (current?.id === id)
+      $("messages").append(element("p", error.message, "error"));
+  } finally {
+    $("ask").disabled = false;
+    $("ask").textContent = t("ask");
+    $("messages").setAttribute("aria-busy", "false");
+  }
+};
+$("zoomIn").onclick = () => {
+  scale = Math.min(2, scale + 0.2);
+  renderMap();
+};
+$("zoomOut").onclick = () => {
+  scale = Math.max(0.5, scale - 0.2);
+  renderMap();
+};
+$("svg").onclick = () => {
+  const svg = $("mapCanvas").querySelector("svg");
+  if (svg)
+    saveBlob(
+      new Blob([new XMLSerializer().serializeToString(svg)], {
+        type: "image/svg+xml;charset=utf-8",
+      }),
+      "meeting-map.svg",
+    );
+};
+init().catch((e) => message(e.message, true));
+
+function showView(name) {
+  view = name;
+  $("dashboardPage").hidden = !["dashboard", "meetings"].includes(name);
+  $("uploadPage").hidden = name !== "upload";
+  $("settingsPage").hidden = name !== "settings";
+  $("meeting").hidden = name !== "meeting" || !current;
+  document.querySelectorAll("[data-view]").forEach((button) => {
+    const active = button.dataset.view === name;
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-current", active ? "page" : "false");
+  });
+  renderDashboard();
+}
+function renderDashboard() {
+  $("dashboardTitle").textContent = t(
+    view === "meetings" ? "allMeetings" : "dashboard",
+  );
+  const container = $("dashboardMeetings");
+  container.replaceChildren();
+  const rows =
+    view === "meetings" ? libraryMeetings : libraryMeetings.slice(0, 5);
+  if (!rows.length) {
+    container.append(element("p", t("emptyLibrary"), "muted"));
+    return;
+  }
+  rows.forEach((meeting) => {
+    const button = element("button", undefined, "meeting-row");
+    button.append(
+      element("span", meeting.title),
+      element("small", t(meeting.status)),
+    );
+    button.onclick = () => openMeeting(meeting.id);
+    container.append(button);
+  });
+}
+async function checkServices() {
+  $("checkServices").disabled = true;
+  try {
+    health = await api("/api/health");
+    renderSettings();
+  } catch (error) {
+    message(error.message, true);
+  } finally {
+    $("checkServices").disabled = false;
+  }
+}
+function renderSettings() {
+  const entries = [
+    ["ollamaStatus", t(health.ollama || "checking")],
+    ["model", health.llm_model],
+    ["speechModel", health.whisper_model],
+    [
+      "compute",
+      health.device
+        ? `${health.device.toUpperCase()} / ${health.compute_type}`
+        : "",
+    ],
+    ["audioRetention", t(health.retain_audio ? "yes" : "no")],
+    [
+      "uploadLimit",
+      health.max_upload_bytes ? `${health.max_upload_bytes / 1048576} MB` : "",
+    ],
+    ["diarization", t(health.diarization ? "yes" : "no")],
+    ["ffmpeg", t(health.ffmpeg ? "ready" : "unavailable")],
+  ];
+  $("health").replaceChildren();
+  entries.forEach(([label, value]) => {
+    $("health").append(element("dt", t(label)), element("dd", value || "—"));
+  });
+}
+function renderActions() {
+  const container = $("actions");
+  container.replaceChildren();
+  if (!current.report) {
+    container.append(element("p", t("emptyReport"), "muted"));
+    return;
+  }
+  if (!current.report.actions.length) {
+    container.append(element("p", t("noActions"), "muted"));
+    return;
+  }
+  const table = element("table", undefined, "action-table"),
+    head = element("thead"),
+    row = element("tr"),
+    body = element("tbody");
+  ["task", "owner", "deadline", "evidence"].forEach((key) =>
+    row.append(element("th", t(key))),
+  );
+  head.append(row);
+  current.report.actions.forEach((action) => {
+    const row = element("tr");
+    [
+      ["task", action.text],
+      ["owner", action.owner || t("unspecified")],
+      ["deadline", action.deadline || t("unspecified")],
+    ].forEach(([key, value]) => {
+      const cell = element("td", value);
+      cell.dataset.label = t(key);
+      row.append(cell);
+    });
+    const evidence = element("td");
+    evidence.dataset.label = t("evidence");
+    evidence.append(refs(action.references));
+    row.append(evidence);
+    body.append(row);
+  });
+  table.append(head, body);
+  container.append(table);
+}
