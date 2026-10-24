@@ -288,7 +288,6 @@ function renderMap() {
   });
   const height = nodes.length * 78 + 24;
   const svg = svgNode("svg", {
-    xmlns: "http://www.w3.org/2000/svg",
     viewBox: `0 0 760 ${height}`,
     width: 760 * scale,
     height: height * scale,
