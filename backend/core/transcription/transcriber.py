@@ -13,6 +13,9 @@ class MeetingTranscriber:
 
     def transcribe(self, audio_path, language=None):
         if self.model is None:
+            import onnxruntime
+
+            onnxruntime.disable_telemetry_events()
             import ctranslate2
             from faster_whisper import WhisperModel
 
@@ -24,7 +27,7 @@ class MeetingTranscriber:
                 compute_type=self.compute_type,
                 cpu_threads=4,
                 num_workers=1,
-                download_root=str(ROOT / "data" / "models" / "whisper"),
+                download_root=str(ROOT / "data" / "models" / "huggingface" / "hub"),
             )
         segments, info = self.model.transcribe(
             (str(audio_path) if isinstance(audio_path, (str, Path)) else audio_path),
