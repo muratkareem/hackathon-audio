@@ -1,21 +1,177 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Steppe Hub</title><link rel="stylesheet" href="styles.css"><script defer src="app.js"></script></head>
-<body>
-<header><a class="brand" href="/">Steppe Hub <span>AI Meeting Intelligence</span></a><label><span data-i18n="interface">Interface</span> <select id="locale"><option value="en">English</option><option value="ru">Русский</option></select></label></header>
-<main>
-<aside><h2 data-i18n="library">Meeting library</h2><button id="refresh" data-i18n="refresh">Refresh</button><div id="library"></div><p class="muted" data-i18n="privacy">Local processing. Audio is removed after processing by default.</p><details><summary data-i18n="settings">Model settings</summary><p data-i18n="settingsHelp">Configure models and audio retention in .env, then restart the server. Install a model with ollama pull qwen2.5:7b.</p><pre id="health"></pre></details></aside>
-<div class="workspace">
-<section class="card"><p class="eyebrow" data-i18n="workspace">YOUR MEETING WORKSPACE</p><h1 data-i18n="headline">Turn conversations into clear next steps.</h1><p class="muted" data-i18n="intro">Upload a recording to find decisions, tasks and the moments behind them.</p>
-<form id="uploadForm"><label id="dropZone" for="fileInput"><strong data-i18n="drop">Drop a recording here or choose a file</strong><span>WAV · MP3 · M4A · FLAC · OGG</span><input id="fileInput" type="file" accept=".wav,.mp3,.m4a,.flac,.ogg" required></label>
-<div class="row"><label><span data-i18n="audioLanguage">Audio language</span><select id="audioLanguage"><option value="auto" data-i18n="auto">Detect automatically</option><option value="en">English</option><option value="ru">Русский</option></select></label><label><span data-i18n="summaryLanguage">Report language</span><select id="summaryLanguage"><option value="en">English</option><option value="ru">Русский</option></select></label><button class="primary" id="uploadBtn" type="submit" data-i18n="process">Process recording</button></div></form>
-<progress id="uploadProgress" value="0" max="100" hidden></progress><p id="message" role="status" aria-live="polite"></p></section>
-<section id="meeting" class="card" hidden><div class="row"><h2 id="meetingTitle"></h2><button id="retry" data-i18n="retry" hidden>Retry analysis</button><button id="delete" class="danger" data-i18n="delete">Delete meeting</button></div><p id="status" role="status"></p><progress id="processingProgress" max="100" value="0"></progress><p id="warnings" class="muted"></p><audio id="player" controls hidden></audio>
-<nav id="tabs"><button data-tab="report" data-i18n="report">Report</button><button data-tab="transcript" data-i18n="transcript">Transcript</button><button data-tab="chat" data-i18n="chat">AI Chat</button><button data-tab="map" data-i18n="map">Mind map</button><button data-tab="exports" data-i18n="exports">Export</button></nav>
-<div id="report" class="panel"></div>
-<div id="transcript" class="panel" hidden><div class="row"><label><span data-i18n="search">Search transcript</span><input id="search" type="search"></label><button id="copy" data-i18n="copy">Copy transcript</button></div><div id="speakers"></div><div id="segments"></div></div>
-<div id="chat" class="panel" hidden><p class="muted" data-i18n="chatHelp">Answers use retrieved transcript passages. Check the cited moments against your recording.</p><div id="messages" aria-live="polite"></div><form id="chatForm" class="row"><label class="grow"><span data-i18n="question">Ask about this meeting</span><input id="question" maxlength="1000" required></label><button id="ask" class="primary" data-i18n="ask">Ask</button></form></div>
-<div id="map" class="panel" hidden><div class="row"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="svg" data-i18n="downloadSvg">Download SVG</button></div><p class="muted" data-i18n="mapHelp">A compact view of topics, decisions and tasks. Scroll to explore; select a node to see its evidence.</p><div id="mapCanvas"></div></div>
-<div id="exports" class="panel" hidden><p data-i18n="exportHelp">Export the current meeting. JSON preserves the original transcript and speaker aliases.</p><div id="downloadLinks" class="row"></div></div>
-</section></div></main><footer data-i18n="footer">Steppe Hub · Local meeting intelligence · Verify AI outputs before acting.</footer>
-</body></html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Steppe Hub</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/"
+        >Steppe Hub <span data-i18n="tagline">Meeting intelligence</span></a
+      ><label
+        ><span data-i18n="interface">Interface</span>
+        <select id="locale">
+          <option value="en">English</option>
+          <option value="ru">Русский</option>
+        </select></label
+      >
+    </header>
+    <main>
+      <aside>
+        <nav id="appNav" aria-label="Workspace">
+          <button data-view="dashboard" data-i18n="dashboard">Dashboard</button
+          ><button data-view="meetings" data-i18n="meetings">Meetings</button
+          ><button data-view="upload" data-i18n="newRecording">
+            New recording</button
+          ><button data-view="settings" data-i18n="settings">Settings</button>
+        </nav>
+        <div class="library-heading">
+          <h2 data-i18n="recent">Recent meetings</h2>
+          <button id="refresh" data-i18n="refresh">Refresh</button>
+        </div>
+        <div id="library"></div>
+        <p class="muted" data-i18n="privacy">
+          Local processing. Audio is removed after processing by default.
+        </p>
+      </aside>
+      <div class="workspace">
+        <section id="dashboardPage" class="card">
+          <h1 id="dashboardTitle" data-i18n="dashboard">Dashboard</h1>
+          <p class="muted" data-i18n="dashboardHelp">
+            Your recordings and their processing status.
+          </p>
+          <div id="dashboardMeetings"></div>
+        </section>
+        <section id="settingsPage" class="card" hidden>
+          <h1 data-i18n="settings">Settings</h1>
+          <p class="muted" data-i18n="settingsHelp">
+            Configuration is read from .env. Restart the server after changing
+            it.
+          </p>
+          <dl id="health" class="settings-grid"></dl>
+          <button id="checkServices" data-i18n="checkServices">
+            Check services
+          </button>
+        </section>
+        <section id="uploadPage" class="card" hidden>
+          <h1 data-i18n="newRecording">New recording</h1>
+          <p class="muted" data-i18n="intro">
+            Upload a recording to find decisions, tasks and the moments behind
+            them.
+          </p>
+          <form id="uploadForm">
+            <label id="dropZone" for="fileInput"
+              ><strong data-i18n="drop"
+                >Drop a recording here or choose a file</strong
+              ><span>WAV · MP3 · M4A · FLAC · OGG</span
+              ><input
+                id="fileInput"
+                type="file"
+                accept=".wav,.mp3,.m4a,.flac,.ogg"
+                required
+            /></label>
+            <div class="row">
+              <label
+                ><span data-i18n="audioLanguage">Audio language</span
+                ><select id="audioLanguage">
+                  <option value="auto" data-i18n="auto">
+                    Detect automatically
+                  </option>
+                  <option value="en">English</option>
+                  <option value="ru">Русский</option>
+                </select></label
+              ><label
+                ><span data-i18n="summaryLanguage">Report language</span
+                ><select id="summaryLanguage">
+                  <option value="en">English</option>
+                  <option value="ru">Русский</option>
+                </select></label
+              ><button
+                class="primary"
+                id="uploadBtn"
+                type="submit"
+                data-i18n="process"
+              >
+                Process recording
+              </button>
+            </div>
+          </form>
+          <progress id="uploadProgress" value="0" max="100" hidden></progress>
+        </section>
+        <p id="message" role="status" aria-live="polite"></p>
+        <section id="meeting" class="card" hidden>
+          <div class="row">
+            <h2 id="meetingTitle"></h2>
+            <button id="retry" data-i18n="retry" hidden>Retry analysis</button
+            ><button id="delete" class="danger" data-i18n="delete">
+              Delete meeting
+            </button>
+          </div>
+          <p id="status" role="status"></p>
+          <progress id="processingProgress" max="100" value="0"></progress>
+          <p id="warnings" class="muted"></p>
+          <audio id="player" controls hidden></audio>
+          <nav id="tabs">
+            <button data-tab="report" data-i18n="report">Report</button
+            ><button data-tab="transcript" data-i18n="transcript">
+              Transcript</button
+            ><button data-tab="actions" data-i18n="actions">Action items</button
+            ><button data-tab="chat" data-i18n="chat">AI Chat</button
+            ><button data-tab="map" data-i18n="map">Mind map</button
+            ><button data-tab="exports" data-i18n="exports">Export</button>
+          </nav>
+          <div id="report" class="panel"></div>
+          <div id="actions" class="panel" hidden></div>
+          <div id="transcript" class="panel" hidden>
+            <div class="row">
+              <label
+                ><span data-i18n="search">Search transcript</span
+                ><input id="search" type="search" /></label
+              ><button id="copy" data-i18n="copy">Copy transcript</button>
+            </div>
+            <div id="speakers"></div>
+            <div id="segments"></div>
+          </div>
+          <div id="chat" class="panel" hidden>
+            <p class="muted" data-i18n="chatHelp">
+              Answers use retrieved transcript passages. Check the cited moments
+              against your recording.
+            </p>
+            <div id="messages" aria-live="polite"></div>
+            <form id="chatForm" class="row">
+              <label class="grow"
+                ><span data-i18n="question">Ask about this meeting</span
+                ><input id="question" maxlength="1000" required /></label
+              ><button id="ask" class="primary" data-i18n="ask">Ask</button>
+            </form>
+          </div>
+          <div id="map" class="panel" hidden>
+            <div class="row">
+              <button id="zoomIn" aria-label="Zoom in">+</button
+              ><button id="zoomOut" aria-label="Zoom out">−</button
+              ><button id="svg" data-i18n="downloadSvg">Download SVG</button>
+            </div>
+            <p class="muted" data-i18n="mapHelp">
+              A compact view of topics, decisions and tasks. Scroll to explore;
+              select a node to see its evidence.
+            </p>
+            <div id="mapCanvas"></div>
+          </div>
+          <div id="exports" class="panel" hidden>
+            <p data-i18n="exportHelp">
+              Export the current meeting. JSON preserves the original transcript
+              and speaker aliases.
+            </p>
+            <div id="downloadLinks" class="row"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+    <footer data-i18n="footer">
+      Steppe Hub · Local meeting intelligence · Verify AI outputs before acting.
+    </footer>
+  </body>
+</html>

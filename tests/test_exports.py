@@ -49,3 +49,26 @@ def test_csv_headers_follow_report_language(settings, meeting):
     assert (
         payload.decode("utf-8-sig").splitlines()[0].startswith("Task,Owner,Deadline,")
     )
+
+
+def test_all_declared_ui_labels_have_translations():
+    from html.parser import HTMLParser
+    import re
+
+    dictionary = json.loads((ROOT / "frontend/i18n.json").read_text())
+
+    class Labels(HTMLParser):
+        keys = []
+
+        def handle_starttag(self, tag, attrs):
+            for name, value in attrs:
+                if name == "data-i18n":
+                    self.keys.append(value)
+
+    parser = Labels()
+    parser.feed((ROOT / "frontend/index.html").read_text())
+    keys = set(parser.keys) | set(
+        re.findall(r'\bt\("([a-zA-Z_]+)"\)', (ROOT / "frontend/app.js").read_text())
+    )
+    for language in ("en", "ru"):
+        assert not keys - set(dictionary[language])
