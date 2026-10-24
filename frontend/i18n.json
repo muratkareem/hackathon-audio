@@ -117,7 +117,8 @@
     "noReportMap": "A mind map is available after the meeting report is generated.",
     "noItems": "No items identified.",
     "allMeetings": "All meetings",
-    "statusLabel": "Status"
+    "statusLabel": "Status",
+    "answering": "Finding an answer…"
   },
   "ru": {
     "interface": "Интерфейс",
@@ -237,6 +238,7 @@
     "noReportMap": "Карта встречи доступна после создания отчёта.",
     "noItems": "Ничего не выявлено.",
     "allMeetings": "Все встречи",
-    "statusLabel": "Статус"
+    "statusLabel": "Статус",
+    "answering": "Ищем ответ…"
   }
 }

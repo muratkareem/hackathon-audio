@@ -253,7 +253,9 @@ function saveBlob(blob, name) {
     a = element("a");
   a.href = url;
   a.download = name;
+  document.body.append(a);
   a.click();
+  a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function svgNode(tag, attrs, text) {
@@ -465,6 +467,8 @@ $("chatForm").onsubmit = async (e) => {
   $("messages").append(element("div", question, "bubble question"));
   $("question").value = "";
   $("ask").disabled = true;
+  $("ask").textContent = t("answering");
+  $("messages").setAttribute("aria-busy", "true");
   try {
     const result = await api(`/api/meetings/${id}/chat`, {
       method: "POST",
@@ -481,6 +485,8 @@ $("chatForm").onsubmit = async (e) => {
       $("messages").append(element("p", error.message, "error"));
   } finally {
     $("ask").disabled = false;
+    $("ask").textContent = t("ask");
+    $("messages").setAttribute("aria-busy", "false");
   }
 };
 $("zoomIn").onclick = () => {
