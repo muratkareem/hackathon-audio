@@ -15,30 +15,11 @@ class MeetingRAG:
     Generation: Ollama с контекстом из top-K релевантных сегментов.
     """
 
-    def __init__(self, model_name: str = "llama3.1"):
-        self.model_name = model_name
-        self.segments = []  # raw_data сегменты
-        self.transcript = ""  # полный текст
-        self.ai_summary = ""  # AI протокол
-        self.chat_history = []  # история чата для контекста
-
-        self.system_prompt = """Ты — ИИ-ассистент по содержимому рабочей встречи. 
-Тебе дан транскрипт встречи (расшифровка по спикерам с таймкодами) и AI-протокол.
-
-ПРАВИЛА:
-- Отвечай ТОЛЬКО на основе предоставленного контекста. Не выдумывай факты.
-- Если информации нет в контексте — честно скажи, что в записи это не обсуждалось.
-- Указывай спикера и примерное время, когда упоминалось то, о чём спрашивают.
-- Отвечай кратко и по делу, на русском языке.
-- Можешь цитировать фрагменты транскрипта для подтверждения.
-"""
+    def __init__(self):
+        self.segments = []
 
     def load(self, result: dict):
-        """Загружает результат обработки встречи."""
         self.segments = result.get("raw_data", [])
-        self.transcript = result.get("formatted_transcript", "")
-        self.ai_summary = result.get("ai_summary", "")
-        self.chat_history = []
 
     @property
     def is_loaded(self) -> bool:
@@ -144,7 +125,7 @@ class MeetingRAG:
 
         query_tokens = self._tokenize(question)
         if not query_tokens:
-            # Если токенов нет (например, вопрос из одних стоп-слов), вернём всё
+            # Stop-word-only queries provide no retrieval evidence.
             return []
 
         # Токенизируем все документы
@@ -177,25 +158,13 @@ class MeetingRAG:
             if score > 0:
                 results.append(self.segments[idx])
 
-        # Если BM25 ничего не нашёл (все score=0), возвращаем первые top_k
+        # No lexical match: abstain instead of supplying unrelated segments.
         if not results:
             return []
 
         return results
 
     # ─── Generation ───
-
-    def _build_context(self, relevant_segments: list[dict]) -> str:
-        """Формирует контекст из релевантных сегментов."""
-        lines = []
-        for seg in relevant_segments:
-            speaker = seg.get("speaker", "?")
-            start = seg.get("start", 0)
-            end = seg.get("end", 0)
-            text = seg.get("text", "")
-            lang = seg.get("language", "")
-            lines.append(f"[{start:.1f}s - {end:.1f}s] {speaker} ({lang}): {text}")
-        return "\n".join(lines)
 
     def ask(self, question, settings, language="en"):
         relevant = self.retrieve(question, top_k=8)
