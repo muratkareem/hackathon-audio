@@ -9,6 +9,8 @@ for speech, and `requirements-diarization.txt` separately for gated speaker mode
 ./run_test.sh -q
 .venv/bin/python -m ruff check backend tests scripts
 .venv/bin/python -m ruff format --check backend tests scripts
+npm ci --ignore-scripts --prefix frontend
+npm test --prefix frontend
 node --check frontend/app.js
 .venv/bin/python -m pip check
 ```
@@ -66,3 +68,6 @@ resolve licensing before redistribution rather than inventing terms.
 
 Suggested repository description: “Local AI meeting assistant with FastAPI,
 Faster-Whisper, Ollama, timestamp-grounded Q&A and English/Russian support.”
+
+Frontend interaction tests use jsdom only as a development dependency. The shipped
+application has no npm runtime dependency. GitHub Actions installs no AI models.
