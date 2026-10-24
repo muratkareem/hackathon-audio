@@ -158,3 +158,16 @@ def test_action_requires_explicit_owner_and_deadline(meeting):
         Action(text="Test backend", references=[0])
     action = Action(text="Test backend", references=[0], owner=None, deadline=None)
     assert action.owner is None
+
+
+def test_summary_language_is_explicit_in_system_prompt(monkeypatch, settings, meeting):
+    prompts = []
+
+    def generate(self, schema, system, content):
+        prompts.append(system)
+        return Report.model_validate(meeting["report"])
+
+    monkeypatch.setattr(LocalLLM, "generate", generate)
+    ProtocolGenerator(settings).generate_protocol(meeting["raw_data"], "ru")
+    assert "in Russian" in prompts[0]
+    assert "even when the transcript is English" in prompts[0]

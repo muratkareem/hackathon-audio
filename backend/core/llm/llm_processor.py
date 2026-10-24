@@ -1,6 +1,6 @@
 import json
 from core.llm.client import LocalLLM, InferenceError
-from core.llm.prompts import SUMMARY
+from core.llm.prompts import SUMMARY, output_language
 from core.schemas import Report
 
 
@@ -30,11 +30,12 @@ class ProtocolGenerator:
         self.client = LocalLLM(settings)
 
     def generate_protocol(self, segments, language="en"):
+        prompt = SUMMARY + output_language(language)
         reports = []
         for group in chunks(segments):
             report = self.client.generate(
                 Report,
-                SUMMARY,
+                prompt,
                 json.dumps(
                     {"language": language, "segments": group}, ensure_ascii=False
                 ),
@@ -75,7 +76,7 @@ class ProtocolGenerator:
                     check_references(
                         self.client.generate(
                             Report,
-                            SUMMARY + " Synthesize these partial reports.",
+                            prompt + " Synthesize these partial reports.",
                             content,
                         ),
                         allowed,

@@ -14,6 +14,7 @@ from pypdf import PdfReader
 
 path = Path(sys.argv[1])
 language = sys.argv[2]
+summary_language = sys.argv[3] if len(sys.argv) > 3 else language
 started = time.perf_counter()
 with httpx.Client(
     base_url="http://127.0.0.1:8000", timeout=240, trust_env=False
@@ -22,7 +23,7 @@ with httpx.Client(
         response = client.post(
             "/api/process",
             files={"file": (path.name, audio, "audio/wav")},
-            data={"audio_language": language, "summary_language": language},
+            data={"audio_language": language, "summary_language": summary_language},
         )
     response.raise_for_status()
     meeting = response.json()
@@ -45,12 +46,15 @@ with httpx.Client(
         raise SystemExit(1)
     question = (
         "Who will test the backend?"
-        if language == "en"
+        if language in ("en", "auto")
         else "Кто проверит серверную часть?"
     )
     answer = client.post(
         "/api/meetings/" + meeting["id"] + "/chat",
-        json={"question": question, "language": language},
+        json={
+            "question": question,
+            "language": "en" if language == "auto" else language,
+        },
     )
     answer.raise_for_status()
     answer = answer.json()

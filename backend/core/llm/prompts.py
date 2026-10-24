@@ -15,3 +15,9 @@ QA = (
 If insufficient, set insufficient_evidence=true and references=[]; explain the limitation.
 Otherwise cite the segment IDs that directly support your answer."""
 )
+
+
+def output_language(language):
+    if language == "ru":
+        return "\nWrite every natural-language field in Russian (русский язык), even when the transcript is English. Translate descriptions; preserve proper names and schema keys."
+    return "\nWrite every natural-language field in English, even when the transcript is Russian. Translate descriptions; preserve proper names and schema keys."

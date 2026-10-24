@@ -3,7 +3,7 @@ import math
 from collections import Counter
 import json
 from core.llm.client import LocalLLM, InferenceError
-from core.llm.prompts import QA
+from core.llm.prompts import QA, output_language
 from core.schemas import Answer
 
 
@@ -220,7 +220,7 @@ class MeetingRAG:
                 length += size
         answer = LocalLLM(settings).generate(
             Answer,
-            QA,
+            QA + output_language(language),
             json.dumps(
                 {"language": language, "question": question, "segments": context},
                 ensure_ascii=False,
