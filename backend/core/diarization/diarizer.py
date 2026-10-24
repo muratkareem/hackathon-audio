@@ -1,55 +1,45 @@
-import os
-import torch
-from pyannote.audio import Pipeline
-from pathlib import Path
+"""Optional CPU diarization. Labels describe turns, never real identities."""
 
-# Чтобы модель сохранилась локально и не скачивалась каждый раз
-BASE_DIR = Path(__file__).resolve().parent.parent.parent.parent
-MODELS_DIR = BASE_DIR / "data" / "models"
-os.environ["PYANNOTE_CACHE"] = str(MODELS_DIR)
 
 class SpeakerDiarizer:
-    def __init__(self, hf_token: str):
-        """
-        Инициализация модели диаризации от Pyannote.
-        Требуется токен от Hugging Face, так как модель закрыта лицензией.
-        Автоматически использует MPS (Metal GPU) на Apple Silicon для ускорения.
-        """
-        print("Загрузка модели Pyannote (Диаризация)...")
-        try:
-            self.pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1",
-                token=hf_token
-            )
-        except Exception as e:
-            print("\n❌ ОШИБКА: Не удалось загрузить модель Pyannote.")
-            print("Убедитесь, что вы передали правильный HF_TOKEN и приняли соглашения на Hugging Face!")
-            raise e
-        
-        # Перемещаем на MPS (Metal GPU) для ~2× ускорения на Apple Silicon
-        if torch.backends.mps.is_available():
-            self.device = torch.device("mps")
-            self.pipeline.to(self.device)
-            print("✅ Модель диаризации готова! (🚀 MPS/Metal GPU)")
-        else:
-            self.device = torch.device("cpu")
-            print("✅ Модель диаризации готова! (CPU)")
+    def __init__(self, hf_token):
+        if not hf_token:
+            raise ValueError("diarization_token_missing")
+        from pyannote.audio import Pipeline
+        import torch
 
-    def diarize(self, audio_path: str):
-        """
-        Определяет кто, когда и сколько говорил.
-        """
-        print(f"Запуск разделения по спикерам для файла: {audio_path}")
-        out = self.pipeline(audio_path)
-        # В pyannote.audio 4.0 pipeline возвращает объект DiarizeOutput
-        diarization = out.speaker_diarization if hasattr(out, "speaker_diarization") else out
-        
-        segments = []
-        for turn, _, speaker in diarization.itertracks(yield_label=True):
-            segments.append({
-                "start": turn.start,
-                "end": turn.end,
-                "speaker": speaker # Будет выдавать "SPEAKER_00", "SPEAKER_01" и т.д.
-            })
-            
-        return segments
+        self.pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-3.1", token=hf_token
+        )
+        if self.pipeline is None:
+            raise RuntimeError("diarization_unavailable")
+        self.pipeline.to(torch.device("cpu"))
+
+    def diarize(self, audio_path):
+        result = self.pipeline(str(audio_path))
+        annotation = getattr(result, "speaker_diarization", result)
+        return [
+            {"start": turn.start, "end": turn.end, "speaker": speaker}
+            for turn, _, speaker in annotation.itertracks(yield_label=True)
+        ]
+
+
+def align_speakers(segments, turns):
+    """Choose maximum overlapping turn; ties stable. No overlap stays unknown."""
+    labels = {}
+    for turn in sorted(turns, key=lambda t: t["start"]):
+        labels.setdefault(turn["speaker"], f"Speaker {len(labels) + 1}")
+    result = []
+    for segment in segments:
+        scores = [
+            (
+                max(
+                    0, min(segment["end"], t["end"]) - max(segment["start"], t["start"])
+                ),
+                t["speaker"],
+            )
+            for t in turns
+        ]
+        best = max(scores, key=lambda item: item[0], default=(0, None))
+        result.append({**segment, "speaker": labels[best[1]] if best[0] > 0 else None})
+    return result

@@ -1,146 +1,273 @@
-import os
+"""Single-user loopback API. Run exactly one Uvicorn worker."""
+
+import asyncio
 import shutil
-from fastapi import FastAPI, UploadFile, File
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from contextlib import asynccontextmanager
 from pathlib import Path
-from pydantic import BaseModel
-import pandas as pd
-
-# ПАТЧ ДЛЯ MAC: Чтобы torchcodec находил системный ffmpeg из Homebrew
-if os.path.exists("/opt/homebrew/lib"):
-    os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = "/opt/homebrew/lib:" + os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-
-from core.processor import MeetingProcessor
+from uuid import uuid4
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from core.audio import AudioError, EXTENSIONS, validate_audio
+from core.config import ROOT, Settings
+from core.exports import export
+from core.jobs import Jobs
+from core.limits import BodyLimitMiddleware
 from core.llm.chat import MeetingRAG
-
-app = FastAPI(title="AI Meeting Protocol API")
-
-# Токен читаем из переменных окружения для безопасности (GitHub Push Protection)
-HF_TOKEN = os.environ.get("HF_TOKEN", "ВАШ_ТОКЕН_ЗДЕСЬ")
-
-LLM_MODEL = "llama3.1"
-
-print("⏳ Инициализация ИИ-моделей (Whisper + Pyannote + Ollama)...")
-processor = MeetingProcessor(hf_token=HF_TOKEN, llm_model=LLM_MODEL)
-print("✅ Все модели успешно загружены в память!")
-
-# RAG-чат по встрече
-rag = MeetingRAG(model_name=LLM_MODEL)
-
-# Храним последний результат в памяти для простого экспорта в CSV
-last_result = None
+from core.llm.client import InferenceError, LocalLLM
+from core.schemas import ChatRequest, RenameRequest
+from core.storage import Store
 
 
-class ChatRequest(BaseModel):
-    question: str
+def create_app(settings=None, jobs_factory=Jobs):
+    settings = settings or Settings()
+    store = Store(settings.data_dir)
+    jobs = jobs_factory(store, settings)
 
+    @asynccontextmanager
+    async def lifespan(app):
+        store.recover()
+        yield
+        jobs.close()
 
-@app.post("/api/process")
-async def process_audio(file: UploadFile = File(...)):
-    global last_result
-    
-    base_dir = Path(__file__).resolve().parent.parent.parent
-    audio_dir = base_dir / "data" / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
-    
-    file_path = audio_dir / file.filename
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-        
-    print(f"\n🎧 Получен файл на обработку: {file.filename}")
-    result = processor.process(str(file_path))
-    last_result = result
-    
-    # Загружаем результат в RAG для чата
-    rag.load(result)
-    print("💬 RAG-чат готов к вопросам по встрече")
-    
-    return result
-
-
-@app.post("/api/chat")
-async def chat(req: ChatRequest):
-    """RAG-чат: задавайте вопросы по содержимому встречи."""
-    if not rag.is_loaded:
-        return {"error": "Сначала загрузите и обработайте аудиофайл."}
-    
-    print(f"\n💬 Вопрос: {req.question}")
-    answer = rag.ask(req.question)
-    print(f"💬 Ответ: {answer[:100]}...")
-    
-    return {"answer": answer}
-
-
-@app.get("/api/export/csv")
-async def export_csv():
-    if not last_result:
-        return {"error": "Нет данных для экспорта. Сначала загрузите аудио."}
-        
-    # Преобразуем сырой лог диалога в таблицу Pandas
-    df = pd.DataFrame(last_result["raw_data"])
-    
-    # Сохраняем во временный CSV
-    csv_path = Path(__file__).resolve().parent.parent.parent / "data" / "protocol.csv"
-    df.to_csv(csv_path, index=False, encoding="utf-8-sig") # utf-8-sig для Excel
-    
-    return FileResponse(
-        path=csv_path, 
-        filename="meeting_protocol.csv", 
-        media_type="text/csv"
+    app = FastAPI(title="Steppe Hub", lifespan=lifespan)
+    app.state.store, app.state.jobs = store, jobs
+    app.add_middleware(BodyLimitMiddleware, max_bytes=settings.max_upload_bytes + 65536)
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=["localhost", "127.0.0.1", "[::1]", "testserver"],
     )
 
-@app.get("/api/diagram")
-async def generate_diagram():
-    if not last_result or "ai_summary" not in last_result:
-        return {"error": "Нет данных для генерации диаграммы."}
-    
-    # Используем ProtocolGenerator для вызова Ollama
-    diagram_code = processor.protocol_generator.generate_diagram(last_result["ai_summary"])
-    return {"mermaid_code": diagram_code}
+    @app.middleware("http")
+    async def protect(request: Request, call_next):
+        origin = request.headers.get("origin")
+        if origin and origin != str(request.base_url).rstrip("/"):
+            return JSONResponse({"detail": "origin_not_allowed"}, status_code=403)
+        length = request.headers.get("content-length")
+        if length and (
+            not length.isdigit() or int(length) > settings.max_upload_bytes + 65536
+        ):
+            return JSONResponse({"detail": "upload_too_large"}, status_code=413)
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; media-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'"
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def get(meeting_id):
+        try:
+            meeting = store.get(meeting_id)
+        except ValueError:
+            raise HTTPException(404, "meeting_not_found")
+        if meeting is None:
+            raise HTTPException(404, "meeting_not_found")
+        return meeting
+
+    def acquire():
+        if not jobs.slot.acquire(blocking=False):
+            raise HTTPException(409, "busy")
+
+    @app.get("/api/health")
+    def health():
+        try:
+            models = LocalLLM(settings).models()
+            ollama = "ready" if settings.llm_model in models else "model_missing"
+        except InferenceError:
+            models, ollama = [], "unavailable"
+        return {
+            "status": "ok",
+            "ollama": ollama,
+            "models": models,
+            "llm_model": settings.llm_model,
+            "whisper_model": settings.whisper_model,
+            "device": "cpu",
+            "compute_type": settings.compute_type,
+            "ffmpeg": bool(shutil.which("ffmpeg") and shutil.which("ffprobe")),
+            "retain_audio": settings.retain_audio,
+            "max_upload_bytes": settings.max_upload_bytes,
+            "diarization": settings.diarization,
+        }
+
+    @app.get("/api/meetings")
+    def meetings():
+        return [
+            {
+                k: m.get(k)
+                for k in (
+                    "id",
+                    "title",
+                    "status",
+                    "stage",
+                    "progress",
+                    "created",
+                    "error",
+                )
+            }
+            for m in store.list()
+        ]
+
+    @app.get("/api/meetings/{meeting_id}")
+    def meeting(meeting_id: str):
+        return get(meeting_id)
+
+    @app.post("/api/process", status_code=202)
+    async def upload(
+        file: UploadFile = File(...),
+        audio_language: str = Form("auto"),
+        summary_language: str = Form("en"),
+    ):
+        if audio_language not in ("auto", "en", "ru") or summary_language not in (
+            "en",
+            "ru",
+        ):
+            raise HTTPException(422, "invalid_language")
+        extension = Path(file.filename or "").suffix.lower()
+        if extension not in EXTENSIONS:
+            raise HTTPException(415, "unsupported_format")
+        acquire()
+        meeting_id = str(uuid4())
+        directory = store.directory(meeting_id)
+        submitted = False
+        try:
+            directory.mkdir(mode=0o700)
+            path = directory / ("audio" + extension)
+            size = 0
+            with path.open("xb") as target:
+                while chunk := await file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > settings.max_upload_bytes:
+                        raise HTTPException(413, "upload_too_large")
+                    target.write(chunk)
+            duration = await asyncio.to_thread(
+                validate_audio, path, settings.max_duration
+            )
+            meeting = {
+                "id": meeting_id,
+                "title": Path((file.filename or "Meeting").replace("\\", "/")).name[
+                    :150
+                ],
+                "extension": extension,
+                "duration": duration,
+                "status": "queued",
+                "stage": "queued",
+                "progress": 0,
+                "audio_language": audio_language,
+                "summary_language": summary_language,
+                "raw_data": [],
+                "speaker_names": {},
+                "warnings": [],
+                "report": None,
+                "error": None,
+            }
+            store.save(meeting)
+            jobs.submit(meeting)
+            submitted = True
+            return meeting
+        except AudioError as exc:
+            raise HTTPException(422, str(exc))
+        finally:
+            await file.close()
+            if not submitted:
+                shutil.rmtree(directory, ignore_errors=True)
+                jobs.slot.release()
+
+    @app.post("/api/meetings/{meeting_id}/retry", status_code=202)
+    def retry(meeting_id: str):
+        meeting = get(meeting_id)
+        if meeting["status"] not in ("failed", "partial"):
+            raise HTTPException(409, "retry_unavailable")
+        mode = "analyze" if meeting["raw_data"] else "process"
+        if (
+            mode == "process"
+            and not (
+                store.directory(meeting_id) / ("audio" + meeting["extension"])
+            ).exists()
+        ):
+            raise HTTPException(409, "reupload_required")
+        acquire()
+        meeting.update(status="queued", error=None)
+        store.save(meeting)
+        jobs.submit(meeting, mode)
+        return meeting
+
+    @app.post("/api/meetings/{meeting_id}/chat")
+    def chat(meeting_id: str, req: ChatRequest):
+        meeting = get(meeting_id)
+        if not meeting["raw_data"]:
+            raise HTTPException(409, "empty_transcript")
+        acquire()
+        try:
+            rag = MeetingRAG()
+            # Use aliases for retrieval without overwriting original diarization labels.
+            rag.load(
+                {
+                    **meeting,
+                    "raw_data": [
+                        {
+                            **s,
+                            "speaker": meeting["speaker_names"].get(
+                                s["speaker"], s["speaker"]
+                            ),
+                        }
+                        for s in meeting["raw_data"]
+                    ],
+                }
+            )
+            return rag.ask(req.question, settings, req.language)
+        except InferenceError as exc:
+            raise HTTPException(503, str(exc))
+        finally:
+            jobs.slot.release()
+
+    @app.patch("/api/meetings/{meeting_id}/speakers")
+    def rename(meeting_id: str, req: RenameRequest):
+        meeting = get(meeting_id)
+        if meeting["status"] in ("queued", "processing"):
+            raise HTTPException(409, "busy")
+        labels = {s["speaker"] for s in meeting["raw_data"] if s["speaker"]}
+        if not set(req.names).issubset(labels):
+            raise HTTPException(422, "invalid_speaker")
+        meeting["speaker_names"] = req.names
+        store.save(meeting)
+        return meeting
+
+    @app.delete("/api/meetings/{meeting_id}", status_code=204)
+    def delete(meeting_id: str):
+        meeting = get(meeting_id)
+        if meeting["status"] in ("queued", "processing"):
+            raise HTTPException(409, "busy")
+        store.delete(meeting_id)
+        return Response(status_code=204)
+
+    @app.get("/api/meetings/{meeting_id}/audio")
+    def audio(meeting_id: str):
+        meeting = get(meeting_id)
+        path = store.directory(meeting_id) / ("audio" + meeting["extension"])
+        if not settings.retain_audio or not path.is_file():
+            raise HTTPException(404, "audio_not_retained")
+        return FileResponse(path)
+
+    @app.get("/api/meetings/{meeting_id}/export/{kind}")
+    def download(meeting_id: str, kind: str):
+        meeting = get(meeting_id)
+        try:
+            content, media = export(meeting, kind, settings)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc))
+        return Response(
+            content,
+            media_type=media,
+            headers={
+                "Content-Disposition": f'attachment; filename="meeting-{meeting_id}.{kind}"'
+            },
+        )
+
+    app.mount("/", StaticFiles(directory=ROOT / "frontend", html=True), name="frontend")
+    return app
 
 
-@app.get("/api/export/json")
-async def export_json():
-    if not last_result:
-        return {"error": "Нет данных для экспорта."}
-    
-    import json
-    json_path = Path(__file__).resolve().parent.parent.parent / "data" / "protocol.json"
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(last_result, f, ensure_ascii=False, indent=2)
-        
-    return FileResponse(
-        path=json_path, 
-        filename="meeting_protocol.json", 
-        media_type="application/json"
-    )
-
-@app.get("/api/export/md")
-async def export_md():
-    if not last_result:
-        return {"error": "Нет данных для экспорта."}
-        
-    md_path = Path(__file__).resolve().parent.parent.parent / "data" / "protocol.md"
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(last_result.get("ai_summary", ""))
-        
-    return FileResponse(
-        path=md_path, 
-        filename="meeting_protocol.md", 
-        media_type="text/markdown"
-    )
-
-
-@app.get("/api/generate_qa")
-async def generate_qa():
-    if not last_result or "ai_summary" not in last_result:
-        return {"qa_pairs": []}
-    
-    # Генерация в фоне после основного ответа
-    qa = processor.protocol_generator.generate_qa_pairs(last_result["ai_summary"])
-    return {"qa_pairs": qa}
-
-# Раздаем статические файлы фронтенда
-frontend_path = Path(__file__).resolve().parent.parent.parent / "frontend"
-app.mount("/", StaticFiles(directory=str(frontend_path), html=True), name="frontend")
+app = create_app()
