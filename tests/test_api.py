@@ -169,3 +169,24 @@ def test_recovery_respects_retention(app, meeting, retain_audio):
     app.state.store.recover(retain_audio=retain_audio)
     assert audio.exists() is retain_audio
     assert app.state.store.get(meeting["id"])["status"] == "failed"
+
+
+def test_retained_audio_is_scoped_and_optional(settings, meeting, tmp_path):
+    from api.main import create_app
+    from fastapi.testclient import TestClient
+
+    settings.retain_audio = True
+    app = create_app(settings)
+    app.state.store.save(meeting)
+    directory = app.state.store.directory(meeting["id"])
+    directory.mkdir()
+    (directory / "audio.wav").write_bytes(b"synthetic")
+    with TestClient(app, base_url="http://localhost") as client:
+        assert (
+            client.get("/api/meetings/" + meeting["id"] + "/audio").content
+            == b"synthetic"
+        )
+        settings.retain_audio = False
+        assert (
+            client.get("/api/meetings/" + meeting["id"] + "/audio").status_code == 404
+        )
