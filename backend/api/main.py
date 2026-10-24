@@ -27,7 +27,7 @@ def create_app(settings=None, jobs_factory=Jobs):
 
     @asynccontextmanager
     async def lifespan(app):
-        store.recover()
+        store.recover(retain_audio=settings.retain_audio)
         yield
         jobs.close()
 

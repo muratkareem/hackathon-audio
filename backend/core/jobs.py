@@ -15,10 +15,7 @@ class Jobs:
 
     def submit(self, meeting, mode="process"):
         # Caller must acquire slot before accepting upload, bounding memory/disk work too.
-        try:
-            self.executor.submit(self.run, meeting["id"], mode)
-        except Exception:
-            raise
+        self.executor.submit(self.run, meeting["id"], mode)
 
     def run(self, meeting_id, mode):
         settings = self.settings
@@ -63,10 +60,12 @@ class Jobs:
                 self.store.save(meeting)
         finally:
             self.process = None
-            if not settings.retain_audio:
-                for path in self.store.directory(meeting_id).glob("audio.*"):
-                    path.unlink(missing_ok=True)
-            self.slot.release()
+            try:
+                if not settings.retain_audio:
+                    for path in self.store.directory(meeting_id).glob("audio.*"):
+                        path.unlink(missing_ok=True)
+            finally:
+                self.slot.release()
 
     def close(self):
         if self.process and self.process.poll() is None:

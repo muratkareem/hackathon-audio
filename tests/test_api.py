@@ -156,3 +156,16 @@ def test_delete_symlink_rejected(app, meeting, tmp_path):
     directory.symlink_to(tmp_path, target_is_directory=True)
     with pytest.raises(ValueError):
         app.state.store.delete(meeting["id"])
+
+
+@pytest.mark.parametrize("retain_audio", [False, True])
+def test_recovery_respects_retention(app, meeting, retain_audio):
+    meeting["status"] = "processing"
+    app.state.store.save(meeting)
+    directory = app.state.store.directory(meeting["id"])
+    directory.mkdir()
+    audio = directory / "audio.wav"
+    audio.write_bytes(b"synthetic")
+    app.state.store.recover(retain_audio=retain_audio)
+    assert audio.exists() is retain_audio
+    assert app.state.store.get(meeting["id"])["status"] == "failed"

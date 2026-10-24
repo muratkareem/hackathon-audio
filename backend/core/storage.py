@@ -1,5 +1,6 @@
 """SQLite metadata; all media paths derive solely from validated UUIDs."""
 
+from contextlib import contextmanager
 import json
 import sqlite3
 from pathlib import Path
@@ -16,10 +17,15 @@ class Store:
                 "CREATE TABLE IF NOT EXISTS meetings (id TEXT PRIMARY KEY, created TEXT DEFAULT CURRENT_TIMESTAMP, payload TEXT NOT NULL)"
             )
 
+    @contextmanager
     def connect(self):
         con = sqlite3.connect(self.db, timeout=10)
         con.row_factory = sqlite3.Row
-        return con
+        try:
+            with con:
+                yield con
+        finally:
+            con.close()
 
     def directory(self, meeting_id):
         if str(UUID(meeting_id)) != meeting_id:
@@ -51,13 +57,18 @@ class Store:
             {**json.loads(row["payload"]), "created": row["created"]} for row in rows
         ]
 
-    def recover(self):
+    def recover(self, retain_audio=False):
         for meeting in self.list():
             if meeting["status"] in ("queued", "processing"):
                 meeting.update(
                     status="failed", stage="interrupted", error="interrupted"
                 )
                 self.save(meeting)
+                if not retain_audio:
+                    directory = self.directory(meeting["id"])
+                    if not directory.is_symlink():
+                        for audio in directory.glob("audio.*"):
+                            audio.unlink(missing_ok=True)
 
     def delete(self, meeting_id):
         import shutil
